@@ -1,3 +1,4 @@
+import numpy as np
 import os
 from obspy import read
 from scipy.fft import next_fast_len
@@ -9,6 +10,15 @@ from sanpy.base.project_functions import (list_waveforms_perday,
 
 class Preprocessing_Project(object):
     def __init__(self, parameters):
+        # set some parameters
+        if isinstance(parameters['ignore_net'], str):
+            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
+                                                     dtype=str).tolist()
+
+        if isinstance(parameters['ignore_sta'], str):
+            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
+                                                     dtype=str).tolist()
+
         self.par = parameters
         self.stations = scan_stations(self.par)
 
@@ -26,6 +36,14 @@ class Preprocessing_Project(object):
 class Correlation_Project(object):
     def __init__(self, parameters):
         # set some parameters
+        if isinstance(parameters['ignore_net'], str):
+            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
+                                                     dtype=str).tolist()
+
+        if isinstance(parameters['ignore_sta'], str):
+            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
+                                                     dtype=str).tolist()
+
         parameters['fs'] = 1. / parameters['dt']
 
         parameters['corr_overlap'] = (parameters['corr_dur'] -
@@ -79,6 +97,14 @@ class Correlation_Project(object):
 class Stacking_Project(object):
     def __init__(self, parameters):
         # set some parameters
+        if isinstance(parameters['ignore_net'], str):
+            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
+                                                     dtype=str).tolist()
+
+        if isinstance(parameters['ignore_sta'], str):
+            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
+                                                     dtype=str).tolist()
+
         parameters['corr_path'] = os.path.join(parameters['output_path'],
                                                'stacked_correlations')
 
@@ -105,6 +131,14 @@ class Stacking_Project(object):
 class Control_Project(object):
     def __init__(self, parameters):
         # set some parameters
+        if isinstance(parameters['ignore_net'], str):
+            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
+                                                     dtype=str).tolist()
+
+        if isinstance(parameters['ignore_sta'], str):
+            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
+                                                     dtype=str).tolist()
+
         parameters['log_path'] = os.path.join(parameters['output_path'], 'log')
 
         tmp = os.listdir(parameters['data_path'])
