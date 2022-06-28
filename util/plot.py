@@ -22,13 +22,13 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
         stpath = os.path.join(data_path, '*')
         st += read(stpath, format=data_format)
 
-    # cut maximum lag
+    # cut data
     if maxtime:
-        cutlag = st[0].stats.sac.e - maxtime
+        maxlag = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
 
-        if cutlag > 0:
-            st = st.slice(st[0].stats.starttime + cutlag,
-                          st[0].stats.endtime - cutlag)
+        for i in range(0, len(st)):
+            st[i] = st[i].slice(st[i].stats.starttime + maxlag - maxtime,
+                                st[i].stats.starttime + maxlag + maxtime)
 
     maxtime = (st[0].stats.npts - 1) / 2
     maxtime *= st[0].stats.delta
@@ -106,11 +106,9 @@ def plot_greens(data_path, data_format, pairs=None, maxtime=None,
 
     # cut maximum time
     if maxtime:
-        cuttime = st[0].stats.endtime - st[0].stats.starttime - maxtime
-
-        if cuttime > 0:
-            st = st.slice(st[0].stats.starttime,
-                          st[0].stats.endtime - cuttime)
+        for i in range(0, len(st)):
+            st[i] = st[i].slice(st[i].stats.starttime,
+                                st[i].stats.starttime + maxtime)
 
     times = st[0].times()
 
