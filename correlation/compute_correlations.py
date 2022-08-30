@@ -20,9 +20,11 @@ st, fft index equals the station given by "win_stations[index]"
 corr index equals the pair given by "win_pairs[index]"
 corr_day index equals the pair given by "all_pairs[index]"
 
-the correlation of station A with B gives the ncf A_B
-the acausal branch of A_B indicates wavefield from B to A
-and the causal branch the wavefield from A to B
+Noise correlations are defined as in Tromp et al. 2010:
+    c^ab = s^a(w) * complex_conjugate(s^b(w))
+
+The acausal branch shows waves from a to b
+The causal branch shows waves from b to a
 """
 
 comm = MPI.COMM_WORLD

@@ -120,8 +120,9 @@ def xcorr(fft, stations, pairs, par):
         idx1 = stations.index(sta1)
         idx2 = stations.index(sta2)
 
-        # linear cross-correlation of sta1 with sta2
-        tmp_corr = np.conj(fft[idx1, :]) * fft[idx2, :]
+        # linear cross-correlation of sta1 with sta2 as in equation 11 of
+        # Tromp et al. 2010
+        tmp_corr = fft[idx1, :] * np.conj(fft[idx2, :])
 
         # convert to time domain, this results in [pos_lags, neg_lags]
         tmp_corr = np.real(np.fft.irfft(tmp_corr, par['nfft'],
