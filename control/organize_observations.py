@@ -2,6 +2,7 @@ import numpy as np
 import shutil
 import sys
 import os
+from obspy import read
 
 from sanpy.base.project_functions import load_project
 from sanpy.control.functions import filter_station_pairs
@@ -13,6 +14,8 @@ thr_ndays = 90
 thr_snr = 10.0
 thr_cc = 0.8
 thr_nseasons = 2
+
+save_reversed_correlations = True
 
 P = load_project(project_path)
 
@@ -51,14 +54,19 @@ for src in sources:
     for obs in observations:
         _, rec = obs.split('_')
 
-        obs_file = '{}_{}.{}'.format(src, rec, P.par['data_format'])
-        obs_file = os.path.join(obs_path, obs_file)
+        obs_name = '{}_{}.{}'.format(src, rec, P.par['data_format'])
+        obs_file = os.path.join(obs_path, obs_name)
 
         if not os.path.isfile(obs_file):
             print('{} observation not found'.format(obs))
             continue
 
-        shutil.copy(obs_file, event_path)
+        if save_reversed_correlations:
+            st = read(obs_file)
+            st[0].data = st[0].data[::-1]
+            st.write(os.path.join(event_path, obs_name))
+        else:
+            shutil.copy(obs_file, event_path)
 
 thr_file = os.path.join(output_path, 'used_thresholds.txt')
 
