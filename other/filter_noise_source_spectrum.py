@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import scipy.fft as sf
-from obspy.signal.invsim import cosine_sac_taper
-from scipy.signal import correlation_lags
+from obspy.signal.filter import bandpass
+from scipy.signal import correlation_lags, tukey
 
 
 # PARAMETERS
@@ -16,40 +16,52 @@ tr_dur = 3600.0
 dt = 0.5
 
 # output information
-flimit = (0.006, 0.03, 0.33, 0.594)  # filter corners
-output_nt = 3000  # source function npts for one branch
+output_nt = 11000  # source function npts for one branch
 output_dt = 0.03  # source function dt
+
+# filter
+fqmin = 0.1
+fqmax = 0.2
+corners = 4
 
 # DONT EDIT BELOW THIS LINE
 # =========================
+# read spectrum
+spectrum = np.load(spectrum_path)
+
+# get frequency axis
 corr_npts = int((tr_dur / dt) + 1)
 nfft = sf.next_fast_len(2 * corr_npts - 1)
-
-spectrum = np.load(spectrum_path)
 freq = np.fft.rfftfreq(nfft, d=dt)
 
-# filter spectrum
-taper = cosine_sac_taper(freq, flimit)
+# taper spectrum ends to remove spikes
+plt.plot(freq, spectrum, 'k')
+
+taper = tukey(spectrum.size, 0.01)
 spectrum = spectrum * taper
-spectrum /= np.max(spectrum)
-output = np.array([freq, spectrum])
 
-# save spectrum
-np.save(os.path.join(output_path, 'filtered_noise_source_spectrum'), output)
+plt.plot(freq, taper, 'r')
+plt.plot(freq, spectrum, 'b')
+plt.show()
 
-# get source function from the spectrum
+# interpolate spectrum to a new sampling rate
 freq2 = np.fft.rfftfreq(output_nt, d=output_dt)
-spectrum2 = np.interp(freq2, freq, spectrum)
-spectrum2 /= np.max(spectrum2)
+spectrum2 = np.interp(freq2, freq, spectrum, left=0.0, right=0.0)
 
+# get source time function
 t = correlation_lags(output_nt, output_nt, mode='full') * output_dt
 x = np.real(np.fft.irfft(spectrum2, t.size, norm='backward'))
 x = np.fft.fftshift(x)
 
-output = np.array([t, x], dtype='float32')
-output = output.T
+# filter and normalize source time function
+x = bandpass(x, freqmin=fqmin, freqmax=fqmax, corners=corners,
+             zerophase=True, df=1.0/output_dt)
+
+x /= np.max(x)
 
 # save source function
+output = np.array([t, x], dtype='float32')
+output = output.T
 np.savetxt(os.path.join(output_path, 'S_squared'),
            output, fmt=['%1.7e', '%1.7e'])
 
