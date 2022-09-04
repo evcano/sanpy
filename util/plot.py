@@ -11,7 +11,7 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
     # read data
     st = Stream()
 
-    if pairs:
+    if len(pairs) > 0:
         files = ['{}.{}'.format(x, data_format) for x in pairs]
 
         for f in files:
