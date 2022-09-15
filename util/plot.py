@@ -2,11 +2,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from obspy import read, Stream
+from sanpy.util.apparent_velocity import compute_apparent_velocity
 
 
 def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
                       bandpass=None, global_normalization=False, yaxis=None,
-                      amplitude_only=False):
+                      amplitude_only=False, apparent_velocity=False):
 
     # read data
     st = Stream()
@@ -50,13 +51,28 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
     else:
         st.normalize(global_max=False)
 
-    # get data order according to interstation distance
+    # sort data according to interstation distance
     distances = []
-
     for tr in st:
         distances.append(tr.stats.sac.dist)
 
     idx = np.argsort(np.array(distances))
+    distances = np.sort(distances)
+
+    data = np.zeros((ntr, st[0].stats.npts))
+    for i, j in enumerate(idx):
+        data[i, :] = st[j].data
+
+    # estimate apparent velocity
+    if apparent_velocity:
+        pos_win = np.zeros(lags.shape)
+        pos_win[np.where(lags >= 0.0)] = 1.0
+
+        pos_c1, pos_c2 = compute_apparent_velocity(data*pos_win, lags,
+                                                   distances)
+
+        neg_c1, neg_c2 = compute_apparent_velocity(data*pos_win[::-1], lags,
+                                                   distances)
 
     # setup figure
     fig, ax = plt.subplots()
@@ -71,25 +87,28 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
 
     # plot data
     if amplitude_only:
-        data = np.zeros((ntr, st[0].stats.npts))
-
-        for i in idx:
-            data[i, :] = st[i].data
-
         ax.imshow(data, extent=[lags[0], lags[-1], 0, ntr-1])
     else:
         offset = 0
 
-        for i in idx:
+        for i in range(0, ntr):
             if yaxis and yaxis == 'dis':
-                data = st[i].data + st[i].stats.sac.dist
+                data[i, :] += distances[i]
             else:
-                data = st[i].data + offset
-                offset = np.max(data)
+                data[i, :] += offset
+                offset = np.max(data[i, :])
 
-            ax.plot(lags, data, c='k', lw=0.5, alpha=0.5)
+            ax.plot(lags, data[i, :], c='k', lw=0.5, alpha=0.5)
 
     print('{} correlations plotted'.format(ntr))
+
+    if apparent_velocity:
+        print('Acausal-branch apparent velocity: {} km/s'.format(1.0/neg_c1))
+        print('Causal-branch apparent velocity: {} km/s'.format(1.0/pos_c1))
+
+        if yaxis and yaxis == 'dis':
+            plt.plot(pos_c1*np.array(distances)+pos_c2, distances, 'r')
+            plt.plot(neg_c1*np.array(distances)+neg_c2, distances, 'r')
 
     plt.show()
 
@@ -98,7 +117,7 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
 
 def plot_greens(data_path, data_format, pairs=None, maxtime=None,
                 bandpass=None, global_normalization=False, yaxis=None,
-                amplitude_only=False):
+                amplitude_only=False, apparent_velocity=False):
 
     # read data
     st = Stream()
@@ -139,13 +158,21 @@ def plot_greens(data_path, data_format, pairs=None, maxtime=None,
     else:
         st.normalize(global_max=False)
 
-    # get data order according to interstation distance
+    # sort data according to interstation distance
     distances = []
-
     for tr in st:
         distances.append(tr.stats.sac.dist)
 
     idx = np.argsort(np.array(distances))
+    distances = np.sort(distances)
+
+    data = np.zeros((ntr, st[0].stats.npts))
+    for i, j in enumerate(idx):
+        data[i, :] = st[j].data
+
+    # estimate apparent velocity
+    if apparent_velocity:
+        c1, c2 = compute_apparent_velocity(data, times, distances)
 
     # setup figure
     fig, ax = plt.subplots()
@@ -160,25 +187,26 @@ def plot_greens(data_path, data_format, pairs=None, maxtime=None,
 
     # plot data
     if amplitude_only:
-        data = np.zeros((ntr, st[0].stats.npts))
-
-        for i in idx:
-            data[i, :] = st[i].data
-
         ax.imshow(data, extent=[times[0], times[-1], 0, ntr-1])
     else:
         offset = 0
 
-        for i in idx:
+        for i in range(0, ntr):
             if yaxis and yaxis == 'dis':
-                data = st[i].data + st[i].stats.sac.dist
+                data[i, :] += distances[i]
             else:
-                data = st[i].data + offset
-                offset = np.max(data)
+                data[i, :] += offset
+                offset = np.max(data[i, :])
 
-            ax.plot(times, data, c='k', lw=0.5, alpha=0.5)
+            ax.plot(times, data[i, :], c='k', lw=0.5, alpha=0.5)
 
     print("{} empirical Green's functions plotted".format(len(idx)))
+
+    if apparent_velocity:
+        print('Apparent velocity: {} km/s'.format(1.0/c1))
+
+        if yaxis and yaxis == 'dis':
+            plt.plot(c1*np.array(distances)+c2, distances, 'r')
 
     plt.show()
 

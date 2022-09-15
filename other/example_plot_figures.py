@@ -7,20 +7,21 @@ from sanpy.util.plot import plot_greens
 
 # PARAMETERS
 # =========
-project_path = '../projects/cvc_stacking.pkl'
+project_path = '../projects/sub_cvc_stacking.pkl'
 data_format = 'sac'
 data_type = 'correlations'
 
 season = 'all'
 minfq = 1. / 10.
-maxfq = 1. / 5.
-virtual_source = ''
-conditions = ''
+maxfq = 1. / 3.
+virtual_source = None
+conditions = ['0 < dis < 90']
+apparent_velocity = True
 
-maxlag = 200.0
+maxlag = 80.0
 global_normalization = False
-yaxis = 'dis'
-
+yaxis = 'no'
+amplitude_only = False
 
 # DONT EDIT BELOW THIS LINE
 # =========================
@@ -43,7 +44,9 @@ if data_type == 'correlations':
                       maxtime=maxlag,
                       bandpass=[minfq, maxfq],
                       global_normalization=global_normalization,
-                      yaxis=yaxis)
+                      yaxis=yaxis,
+                      amplitude_only=amplitude_only,
+                      apparent_velocity=apparent_velocity)
 
 elif data_type == 'green':
     plot_greens(data_path=os.path.join(P.par['greens_path'], season),
@@ -52,4 +55,6 @@ elif data_type == 'green':
                 maxtime=maxlag,
                 bandpass=[minfq, maxfq],
                 global_normalization=global_normalization,
-                yaxis=yaxis)
+                yaxis=yaxis,
+                amplitude_only=amplitude_only,
+                apparent_velocity=apparent_velocity)
