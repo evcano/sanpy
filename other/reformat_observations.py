@@ -9,16 +9,16 @@ from obspy import read
 # ==========
 data_path = '/data/valeroe/sub_cvc_correlations/events/observations'
 data_format = 'sac'
-component = 'BXZ'
 correlation = True
 
-new_duration = 89.5  # this equals maximum lag if correlation =  True
+new_duration = 89.5  # this equals maximum lag if correlation=True
 new_dt = None
 shift = 0.0  # specfem shift
 
-output_format = 'semd'  # mseed, sac, semd
 rename_data = True
-output_lags = False  # output time axis as lags
+output_format = 'semd'  # mseed, sac, semd
+output_component = 'BXZ'
+output_lags = False  # output lags instead of times starting from 0
 
 
 # DONT EDIT BELOW THIS LINE
@@ -83,13 +83,13 @@ for event in events:
 
         # if output format is semd, zero-pad data start to account for
         # source function shift
-        if output_format == 'semd':
+        if output_format == 'semd' and shift != 0.0:
             tr.trim(tr.stats.starttime + shift, tr.stats.endtime,
                     pad=True, fill_value=0.)
 
         # save data
         if rename_data:
-            out_name = '{}.{}.{}'.format(rec, component, output_format)
+            out_name = '{}.{}.{}'.format(rec, output_component, output_format)
         else:
             out_name = wf
 
