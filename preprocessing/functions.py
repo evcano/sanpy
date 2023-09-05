@@ -91,6 +91,9 @@ def get_pending_waveforms(output_path, waveforms_paths):
 
 def preprocess(st, par, inv=[]):
     for tr in st:
+        if (tr.stats.npts*tr.stats.delta) < par["taper_length"]:
+            continue
+
         tr.detrend(type="demean")
         tr.detrend(type="linear")
         tr.taper(max_percentage=None,
