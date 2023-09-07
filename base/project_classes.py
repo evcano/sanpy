@@ -9,28 +9,38 @@ from sanpy.base.project_functions import (list_waveforms_perday,
 
 
 class Preprocessing_Project(object):
-    def __init__(self, parameters):
-        # set some parameters
-        if isinstance(parameters['ignore_net'], str):
-            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
-                                                     dtype=str).tolist()
+    def __init__(self, par):
+        if isinstance(par['ignore_net'], str):
+            par['ignore_net'] = np.genfromtxt(par['ignore_net'],
+                                              dtype=str).tolist()
 
-        if isinstance(parameters['ignore_sta'], str):
-            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
-                                                     dtype=str).tolist()
+        if isinstance(par['ignore_sta'], str):
+            par['ignore_sta'] = np.genfromtxt(par['ignore_sta'],
+                                              dtype=str).tolist()
 
-        self.par = parameters
-        self.stations = scan_stations(self.par)
+        self.par = par
 
-        self.waveforms_paths, self.data_span = scan_waveforms(self.par)
+    def setup(self):
+        self.stations = scan_stations(metadata_path=self.par["metadata_path"],
+                                      cmpts=self.par["cmpts"],
+                                      ignore_net=self.par["ignore_net"],
+                                      ignore_sta=self.par["ignore_sta"]
+                                     )
 
-        # setup output directory
-        for code in self.stations.index:
-            net, sta = code.split('.')
-            d = os.path.join(self.par['output_path'], net, sta)
+        self.waveforms_paths, self.data_span = scan_waveforms(
+            data_path=self.par["data_path"],
+            stations=self.stations
+        )
 
-            if not os.path.isdir(d):
-                os.makedirs(d)
+        for code in self.stations_list:
+            net, sta = code.split(".")
+            dir_ = os.path.join(self.par['output_path'], net, sta)
+            if not os.path.isdir(dir_):
+                os.makedirs(dir_)
+
+    @property
+    def stations_list(self):
+        return list(self.stations.keys())
 
 
 class Correlation_Project(object):

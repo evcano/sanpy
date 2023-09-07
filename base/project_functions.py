@@ -65,6 +65,12 @@ def scan_stations(metadata_path, cmpts, ignore_net=None, ignore_sta=None):
                         if cha_obj.code[-1] in cmpts:
                             cha.append(cha_obj.code)
 
+        # check that the station coordinates did not change over its deployment
+        if len(set(lon)) > 1 or len(set(lat)) > 1 or len(set(elv)) > 1:
+            warnings.warn(f"Skipping {file_}: contains different coordinates "
+                          f"for the same station.")
+            continue
+
         # check that there are channels
         if not cha:
             warnings.warn(f"Skipping {file_}: no channels found.")
@@ -72,25 +78,15 @@ def scan_stations(metadata_path, cmpts, ignore_net=None, ignore_sta=None):
         # eliminate repeated channels
         cha = list(set(cha))
 
-        # check that the channels correspond to different components
-        cha_cmp = []
-        for c in cha:
-            cha_cmp.append(c[-1])
-
-        if len(set(cha_cmp)) != len(cha_cmp):
-            warnings.warn(f"Skipping {file_}: multiple channels contain "
-                          f"information about the same component.")
-            continue
-
         # check that there is information for all the requested components
-        if cha_cmp.sort() != cmpts.sort():
+        avail_cmpts = []
+        for c in cha:
+            avail_cmpts.append(c[-1])
+        avail_cmpts = list(set(avail_cmpts))
+
+        if avail_cmpts.sort() != cmpts.sort():
             warnings.warn(f"Skipping {file_}: not all the requested components "
                           f"are available")
-
-        # check that the station coordinates did not change over its deployment
-        if len(set(lon)) > 1 or len(set(lat)) > 1 or len(set(elv)) > 1:
-            warnings.warn(f"Skipping {file_}: contains different coordinates "
-                          f"for the same station.")
             continue
 
         code = f"{inv_net}.{inv_sta}"
