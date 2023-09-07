@@ -45,22 +45,22 @@ waveforms_to_process = distribute_objects(pending_waveforms, nproc, myrank)
 nwaveforms_proc = len(waveforms_to_process)
 
 if myrank == 0:
-    print('To do ~{} waveforms per core'.format(nwaveforms_proc))
+    print(f"To do ~{nwaveforms_proc} waveforms per core")
 
 # do jobs
 sta_previous = "dummy"
 
 for i, waveform_path in enumerate(waveforms_to_process):
     net, sta, waveform_name = waveform_path.split("/")
+    data_format = P.par['data_format'][net]
 
     # read inventory
     if sta != sta_previous:
-        inv_name = "%s.%s.%s" % (net, sta, P.par["metadata_format"])
+        inv_name = f"{net}.{sta}.{P.par['metadata_format']}"
         inv_file = os.path.join(P.par['metadata_path'], inv_name)
         inv = read_inventory(inv_file)
 
     # read waveform
-    data_format = P.par['data_format'][net]
     tmp = os.path.join(P.par['data_path'], waveform_path)
     st = read(tmp, format=data_format)
 
@@ -75,7 +75,7 @@ for i, waveform_path in enumerate(waveforms_to_process):
 
     # save waveform
     waveform_name_noext = waveform_name[:-len(data_format)-1]
-    out_file = "{}.{}".format(waveform_name_noext, P.par["output_format"])
+    out_file = f"{waveform_name_noext}.{P.par['output_format']}"
     out_path = os.path.join(P.par['output_path'], net, sta, out_file)
     st.write(out_path, format=P.par["output_format"])
 
@@ -84,7 +84,7 @@ for i, waveform_path in enumerate(waveforms_to_process):
     nwaveforms_proc -= 1
 
     if myrank == 0:
-        print('~{} waveforms left per core'.format(nwaveforms_proc))
+        print(f"~{nwaveforms_proc} waveforms left per core")
 
 if myrank == 0:
     shutil.copy(project_path, P.par['output_path'])

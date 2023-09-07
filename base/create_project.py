@@ -24,6 +24,7 @@ if __name__ == '__main__':
 
     if option == 'preprocessing':
         P = Preprocessing_Project(par)
+        P.setup()
     elif option == 'correlation':
         P = Correlation_Project(par)
     elif option == 'stacking':

@@ -40,6 +40,7 @@ def distribute_objects(obj_list, nproc, myrank):
     return proc_obj
 
 
+# TODO: this needs to be modified to account for the removal of pandas
 def query_pairs(project, conditions):
     """
     i.e. conditions = ['20 < baz < 30', '0 < dis < 100']
