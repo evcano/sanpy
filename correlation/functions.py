@@ -60,37 +60,30 @@ def my_centered(arr, newsize):
     return newarr
 
 
-def remove_transient_signal(tr, transient_thresholds):
+def remove_transient_signal(tr, tr_thresholds):
     max_energy = np.max(tr.data ** 2)
-
-    sta = '{}.{}'.format(tr.stats.network, tr.stats.station)
-    idx = transient_thresholds[0].index(sta)
-
-    if max_energy > transient_thresholds[1][idx]:
+    thr = tr_thresholds[tr.get_id()]
+    if max_energy > thr:
         return True
     else:
         return False
 
 
 def transient_signal_thresholds(st, corr_dur, corr_overlap, thr):
-    stations = []
-    stations_thr = []
+    tr_thresholds = {}
 
     # loop over traces
     for tr in st:
-        stations.append('{}.{}'.format(tr.stats.network,
-                                       tr.stats.station))
         energies = []
-
         # sliding window over trace
-        for win_tr in tr.slide(corr_dur, corr_overlap):
-            max_energy = np.max(win_tr.data ** 2.0)
+        for tr_win in tr.slide(corr_dur, corr_overlap):
+            max_energy = np.max(tr_win.data ** 2.0)
             energies.append(max_energy)
 
-        energies = np.array(energies)
-        stations_thr.append(thr * np.median(energies))
+        x = np.median(np.array(energies)) * thr
+        tr_thresholds[tr.get_id()] = x
 
-    return [stations, stations_thr]
+    return tr_thresholds
 
 
 def uniform_time_normalization(corr):
@@ -107,22 +100,22 @@ def uniform_spectral_whitening(fft, single_psd):
     return fft
 
 
-def xcorr(fft, stations, pairs, par):
-    corr = []
-
+def xcorr(fft, stations, pairs, cmp, par):
     lags = correlation_lags(par['corr_npts'], par['corr_npts'])
-
     maxlag = int(par["maxlag"] / par['dt'])  # maxlag to store (in samples)
     store_lags = np.where(np.abs(lags) <= maxlag)[0]
 
-    for pair in pairs:
+    cmp1, cmp2 = cmp
+    corr = []
+
+    for pair in pairs[cmp]:
         sta1, sta2 = pair.split("_")
-        idx1 = stations.index(sta1)
-        idx2 = stations.index(sta2)
+        idx1 = stations[cmp1].index(sta1)
+        idx2 = stations[cmp2].index(sta2)
 
         # linear cross-correlation of sta1 with sta2 as in equation 11 of
         # Tromp et al. 2010
-        tmp_corr = fft[idx1, :] * np.conj(fft[idx2, :])
+        tmp_corr = fft[cmp1][idx1, :] * np.conj(fft[cmp2][idx2, :])
 
         # convert to time domain, this results in [pos_lags, neg_lags]
         tmp_corr = np.real(np.fft.irfft(tmp_corr, par['nfft'],

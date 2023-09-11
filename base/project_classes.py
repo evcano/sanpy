@@ -1,3 +1,4 @@
+import itertools
 import numpy as np
 import os
 from obspy import read
@@ -40,62 +41,64 @@ class Preprocessing_Project(object):
 
     @property
     def stations_list(self):
-        return list(self.stations.keys())
+        stalist = list(self.stations.keys())
+        stalist.sort()
+        return stalist
 
 
 class Correlation_Project(object):
-    def __init__(self, parameters):
-        # set some parameters
-        if isinstance(parameters['ignore_net'], str):
-            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
-                                                     dtype=str).tolist()
+    def __init__(self, par):
+        if isinstance(par['ignore_net'], str):
+            par['ignore_net'] = np.genfromtxt(par['ignore_net'],
+                                              dtype=str).tolist()
 
-        if isinstance(parameters['ignore_sta'], str):
-            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
-                                                     dtype=str).tolist()
+        if isinstance(par['ignore_sta'], str):
+            par['ignore_sta'] = np.genfromtxt(par['ignore_sta'],
+                                              dtype=str).tolist()
 
-        parameters['fs'] = 1. / parameters['dt']
+        par['fs'] = 1. / par['dt']
+        par['corr_overlap'] = par['corr_dur'] - par['corr_overlap']
+        par['corr_npts'] = int((par['corr_dur'] * par['fs']) + 1)
+        par['nfft'] = next_fast_len(2 * par['corr_npts'] - 1)
+        par['out_npts'] = int((2. * par['maxlag'] * par['fs']) + 1)
+        par['output_path'] = os.path.join(par['output_path'],
+                                          'daily_correlations')
+        par['psd_path'] = os.path.join(par['output_path'], 'psd')
+        par['log_path'] = os.path.join(par['output_path'], 'log')
 
-        parameters['corr_overlap'] = (parameters['corr_dur'] -
-                                      parameters['corr_overlap'])
+        self.par = par
 
-        parameters['corr_npts'] = int((parameters['corr_dur'] *
-                                       parameters['fs']) + 1)
+    def setup(self):
+        self.stations = scan_stations(metadata_path=self.par["metadata_path"],
+                                      cmpts=self.par["data_cmpts"],
+                                      ignore_net=self.par["ignore_net"],
+                                      ignore_sta=self.par["ignore_sta"]
+                                     )
 
-        parameters['nfft'] = next_fast_len(2 * parameters['corr_npts'] - 1)
-
-        parameters['out_npts'] = int((2. * parameters['maxlag'] *
-                                      parameters['fs']) + 1)
-
-        parameters['output_path'] = os.path.join(parameters['output_path'],
-                                                 'daily_correlations')
-
-        parameters['psd_path'] = os.path.join(parameters['output_path'], 'psd')
-        parameters['log_path'] = os.path.join(parameters['output_path'], 'log')
-
-        self.par = parameters
-        self.stations = scan_stations(self.par)
-        self.pairs = scan_pairs(self.par, self.stations)
-
-        self.waveforms_paths, self.data_span = scan_waveforms(self.par)
+        self.waveforms_paths, self.data_span = scan_waveforms(
+            data_path=self.par["data_path"],
+            stations=self.stations
+        )
 
         self.waveforms_paths_perday = list_waveforms_perday(
             self.waveforms_paths, self.data_span)
 
-        # check data sampling rate
-        st = read(os.path.join(self.par['data_path'], self.waveforms_paths[0]))
+        self.pairs = scan_pairs(self.stations)
 
+        # at this point, all data is supposed to be processed and have the same
+        # sampling rate, do a shallow check
+        st = read(os.path.join(self.par['data_path'], self.waveforms_paths[0]))
         if st[0].stats['delta'] != self.par['dt']:
             print('Incorrect data sampling rate. Change it to {}.'.format(
                 st[0].stats['delta']))
 
         # setup output directory
-        for pair in self.pairs.index:
+        for pair in self.pairs_list:
             tmp = os.path.join(self.par['output_path'], pair)
             if not os.path.isdir(tmp):
                 os.makedirs(tmp)
 
-        for station in self.stations.index:
+        for station in self.stations_list:
             tmp = os.path.join(self.par['psd_path'], station)
             if not os.path.isdir(tmp):
                 os.makedirs(tmp)
@@ -103,6 +106,24 @@ class Correlation_Project(object):
         if not os.path.isdir(self.par['log_path']):
             os.makedirs(self.par['log_path'])
 
+    @property
+    def stations_list(self):
+        stalist = list(self.stations.keys())
+        stalist.sort()
+        return stalist
+
+    @property
+    def pairs_list(self):
+        plist = list(self.pairs.keys())
+        plist.sort()
+        return plist
+
+    @property
+    def unique_pairs_list(self):
+        plist = itertools.combinations_with_replacement(self.stations_list, 2)
+        plist = [f"{p[0]}_{p[1]}" for p in plist]
+        plist.sort()
+        return plist
 
 class Stacking_Project(object):
     def __init__(self, parameters):
