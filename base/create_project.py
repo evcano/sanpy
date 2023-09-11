@@ -24,13 +24,14 @@ if __name__ == '__main__':
 
     if option == 'preprocessing':
         P = Preprocessing_Project(par)
-        P.setup()
     elif option == 'correlation':
         P = Correlation_Project(par)
     elif option == 'stacking':
         P = Stacking_Project(par)
     elif option == 'control':
         P = Control_Project(par)
+
+    P.setup()
 
     project_file = './projects/{}_{}.pkl'.format(P.par['name'], option)
     save_project(P, project_file)

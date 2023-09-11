@@ -102,12 +102,13 @@ def scan_stations(metadata_path, cmpts, ignore_net=None, ignore_sta=None):
 
 def scan_pairs(stations):
     """
+    We list all station pairs including repetitions such as AA, AB, BA
     """
     pairs = {}
 
     stations_codes = list(stations.keys())
     stations_codes.sort()
-    pairs_obj = itertools.combinations(stations_codes, 2)
+    pairs_obj = itertools.product(stations_codes, stations_codes)
 
     for pair in pairs_obj:
         s1 = pair[0]
