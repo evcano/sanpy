@@ -97,18 +97,20 @@ for day in days_to_correlate:
             n = len(unique_pairs_list)
         else:
             n = len(pairs_list)
-        corr_day[cmp] = np.zeros((n, P.par['out_npts']))
+        corr_day[cmp] = np.zeros((n, P.par['save_npts']))
         count_corr[cmp] = np.zeros(n)
 
     if P.par["save_psd"]:
         psd_day = {}
         count_psd = {}
         for cmp in data_cmpts_day:
-            psd_day[cmp] = np.zeros((len(stations_list), P.par['nfft']//2+1))
+            psd_day[cmp] = np.zeros((len(stations_list),
+                                     P.par['corr_nfft']//2+1))
             count_psd[cmp] = np.zeros(len(stations_list))
 
     # slide a window over the data
-    for st_win in st.slide(P.par['corr_dur'], P.par["corr_overlap"]):
+    for st_win in st.slide(P.par['corr_dur'],
+                           P.par['corr_dur']-P.par["corr_overlap"]):
         # remove traces with time gaps or transient signals
         for tr in st_win:
             if tr.stats.npts != P.par['corr_npts']:
@@ -160,7 +162,7 @@ for day in days_to_correlate:
             data[cmp] = np.asarray([tr.data for tr in st_win_cmp])
 
             data_fft[cmp] = np.fft.rfftn(data[cmp],
-                                         s=[P.par["nfft"]],
+                                         s=[P.par["corr_nfft"]],
                                          axes=[1],
                                          norm="backward")
 
@@ -195,6 +197,7 @@ for day in days_to_correlate:
             pairs_win[cmp].sort()
 
             corr = xcorr(data_fft, stations_win, pairs_win, cmp, P.par)
+            # TODO: E and N should be normalized with the same coefficient
             corr = uniform_time_normalization(corr)
 
             # stack correlations

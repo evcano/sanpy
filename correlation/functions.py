@@ -17,7 +17,7 @@ def compute_single_psd(data, par):
                               detrend="mean")
 
         # normalize psd amplitude so it matches fft amplitude
-        pxx = np.sqrt(par['fs'] * par['nfft'] * 0.5 * pxx)
+        pxx = np.sqrt(par['fs'] * par['corr_nfft'] * 0.5 * pxx)
         stations_psd.append(pxx)
 
     stations_psd = np.asarray(stations_psd)
@@ -26,7 +26,7 @@ def compute_single_psd(data, par):
     # interpolate so len(array_psd) = len(fft[:h_nfft+1])
     interp = interpolate.interp1d(freqs, single_psd)
 
-    freq_fft = np.fft.rfftfreq(par['nfft'], par['dt'])
+    freq_fft = np.fft.rfftfreq(par['corr_nfft'], par['dt'])
     single_psd2 = interp(freq_fft)
 
     return single_psd2
@@ -76,7 +76,7 @@ def transient_signal_thresholds(st, corr_dur, corr_overlap, thr):
     for tr in st:
         energies = []
         # sliding window over trace
-        for tr_win in tr.slide(corr_dur, corr_overlap):
+        for tr_win in tr.slide(corr_dur, corr_dur - corr_overlap):
             max_energy = np.max(tr_win.data ** 2.0)
             energies.append(max_energy)
 
@@ -118,7 +118,7 @@ def xcorr(fft, stations, pairs, cmp, par):
         tmp_corr = fft[cmp1][idx1, :] * np.conj(fft[cmp2][idx2, :])
 
         # convert to time domain, this results in [pos_lags, neg_lags]
-        tmp_corr = np.real(np.fft.irfft(tmp_corr, par['nfft'],
+        tmp_corr = np.real(np.fft.irfft(tmp_corr, par['corr_nfft'],
                                         norm="backward"))
 
         # switch second and first halves of corr to obtain [neg_lags, pos_lags]

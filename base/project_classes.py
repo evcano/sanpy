@@ -8,22 +8,13 @@ from sanpy.base.project_functions import (list_waveforms_perday,
                                           scan_pairs,
                                           scan_waveforms)
 
-#TODO: create other classes by inheriting the Preprocessing_Project class
 class Preprocessing_Project(object):
     def __init__(self, par):
-        if isinstance(par['ignore_net'], str):
-            par['ignore_net'] = np.genfromtxt(par['ignore_net'],
-                                              dtype=str).tolist()
-
-        if isinstance(par['ignore_sta'], str):
-            par['ignore_sta'] = np.genfromtxt(par['ignore_sta'],
-                                              dtype=str).tolist()
-
         self.par = par
 
     def setup(self):
         self.stations = scan_stations(metadata_path=self.par["metadata_path"],
-                                      cmpts=self.par["cmpts"],
+                                      cmpts=self.par["data_cmpts"],
                                       ignore_net=self.par["ignore_net"],
                                       ignore_sta=self.par["ignore_sta"]
                                      )
@@ -46,25 +37,23 @@ class Preprocessing_Project(object):
         return stalist
 
 
-class Correlation_Project(object):
+class Correlation_Project(Preprocessing_Project):
     def __init__(self, par):
-        if isinstance(par['ignore_net'], str):
-            par['ignore_net'] = np.genfromtxt(par['ignore_net'],
-                                              dtype=str).tolist()
-
-        if isinstance(par['ignore_sta'], str):
-            par['ignore_sta'] = np.genfromtxt(par['ignore_sta'],
-                                              dtype=str).tolist()
-
         par['fs'] = 1. / par['dt']
-        par['corr_overlap'] = par['corr_dur'] - par['corr_overlap']
         par['corr_npts'] = int((par['corr_dur'] * par['fs']) + 1)
-        par['nfft'] = next_fast_len(2 * par['corr_npts'] - 1)
-        par['out_npts'] = int((2. * par['maxlag'] * par['fs']) + 1)
-        par['output_path'] = os.path.join(par['output_path'],
-                                          'daily_correlations')
+        par['corr_nfft'] = next_fast_len(2 * par['corr_npts'] - 1)
+        par['save_npts'] = int((2. * par['maxlag'] * par['fs']) + 1)
+
+        par['output_path'] = os.path.join(par['output_path'], 'daily_corr')
         par['psd_path'] = os.path.join(par['output_path'], 'psd')
         par['log_path'] = os.path.join(par['output_path'], 'log')
+
+        data_cmpts = []
+        for cmp in par['corr_cmpts']:
+            c1, c2 = cmp
+            data_cmpts.extend((c1,c2))
+        data_cmpts = list(set(data_cmpts))
+        par['data_cmpts'] = data_cmpts
 
         self.par = par
 
@@ -75,6 +64,8 @@ class Correlation_Project(object):
                                       ignore_sta=self.par["ignore_sta"]
                                      )
 
+        self.pairs = scan_pairs(self.stations)
+
         self.waveforms_paths, self.data_span = scan_waveforms(
             data_path=self.par["data_path"],
             stations=self.stations
@@ -83,7 +74,6 @@ class Correlation_Project(object):
         self.waveforms_paths_perday = list_waveforms_perday(
             self.waveforms_paths, self.data_span)
 
-        self.pairs = scan_pairs(self.stations)
 
         # at this point, all data is supposed to be processed and have the same
         # sampling rate, do a shallow check
@@ -107,12 +97,6 @@ class Correlation_Project(object):
             os.makedirs(self.par['log_path'])
 
     @property
-    def stations_list(self):
-        stalist = list(self.stations.keys())
-        stalist.sort()
-        return stalist
-
-    @property
     def pairs_list(self):
         plist = list(self.pairs.keys())
         plist.sort()
@@ -125,23 +109,11 @@ class Correlation_Project(object):
         plist.sort()
         return plist
 
-class Stacking_Project(object):
+class Stacking_Project(Correlation_Project):
     def __init__(self, par):
-        if isinstance(par['ignore_net'], str):
-            par['ignore_net'] = np.genfromtxt(par['ignore_net'],
-                                              dtype=str).tolist()
-
-        if isinstance(par['ignore_sta'], str):
-            par['ignore_sta'] = np.genfromtxt(par['ignore_sta'],
-                                              dtype=str).tolist()
-
-        par['corr_path'] = os.path.join(par['output_path'],
-                                        'stacked_correlations')
-
+        par['corr_path'] = os.path.join(par['output_path'], 'stacked_corr')
         par['log_path'] = os.path.join(par['corr_path'], 'log')
-
-        par['greens_path'] = os.path.join(par['output_path'],
-                                          'stacked_greens')
+        par['greens_path'] = os.path.join(par['output_path'], 'stacked_greens')
 
         self.par = par
 
@@ -163,25 +135,6 @@ class Stacking_Project(object):
 
         if not os.path.isdir(self.par['greens_path']):
             os.makedirs(self.par['greens_path'])
-
-    @property
-    def stations_list(self):
-        stalist = list(self.stations.keys())
-        stalist.sort()
-        return stalist
-
-    @property
-    def pairs_list(self):
-        plist = list(self.pairs.keys())
-        plist.sort()
-        return plist
-
-    @property
-    def unique_pairs_list(self):
-        plist = itertools.combinations_with_replacement(self.stations_list, 2)
-        plist = [f"{p[0]}_{p[1]}" for p in plist]
-        plist.sort()
-        return plist
 
 
 class Control_Project(object):
