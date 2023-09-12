@@ -4,7 +4,7 @@ import os
 from obspy import read
 from scipy.fft import next_fast_len
 from sanpy.base.project_functions import (list_waveforms_perday,
-                                          scan_stations,
+                                          scan_metadata,
                                           scan_pairs,
                                           scan_waveforms)
 
@@ -13,15 +13,15 @@ class Preprocessing_Project(object):
         self.par = par
 
     def setup(self):
-        self.stations = scan_stations(metadata_path=self.par["metadata_path"],
-                                      cmpts=self.par["data_cmpts"],
-                                      ignore_net=self.par["ignore_net"],
+        self.stations = scan_metadata(metadata_path=self.par["metadata_path"],
+                                      chans=self.par["data_chans"],
                                       ignore_sta=self.par["ignore_sta"]
                                      )
 
         self.waveforms_paths, self.data_span = scan_waveforms(
             data_path=self.par["data_path"],
-            stations=self.stations
+            stations=self.stations,
+            chans=self.par["data_chans"]
         )
 
         for code in self.stations_list:

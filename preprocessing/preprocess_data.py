@@ -56,7 +56,7 @@ for i, waveform_path in enumerate(waveforms_to_process):
 
     # read inventory
     if sta != sta_previous:
-        inv_name = f"{net}.{sta}.{P.par['metadata_format']}"
+        inv_name = f"{net}.{sta}.xml"
         inv_file = os.path.join(P.par['metadata_path'], inv_name)
         inv = read_inventory(inv_file)
 

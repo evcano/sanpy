@@ -3,91 +3,73 @@ import itertools
 import numpy as np
 import os
 import pickle
-import warnings
+from glob import glob
 from obspy import read_inventory, UTCDateTime
 from obspy.geodetics import gps2dist_azimuth
 
 
-def scan_stations(metadata_path, cmpts, ignore_net=None, ignore_sta=None):
+def scan_metadata(metadata_path, chans, ignore_sta=None):
     """
-    Each metadata file must contain information about only one station
+    Scan metadata files to list all the available stations and their
+    coordinates. Each file must contain information only of one station.
+    The file must be named after the corresponding station.
+
+    NOTE: The existence of the instrument response is not checked as
+    this is done by <remove_response> Obspy command.
     """
-    for cmp in cmpts:
-        assert(cmp in ["N","E","Z"]),("Incorrect component")
-
-    acceptable_channels = ["BHN","BHE","BHZ","HHN","HHE","HHZ"]
-
-    metadata_files = os.listdir(metadata_path)
     stations = {}
 
-    for file_ in metadata_files:
-        inv = read_inventory(os.path.join(metadata_path, file_))
+    acceptable_networks = []
+    for key in chans.keys():
+        acceptable_networks.append(key)
+
+    metadata_files = glob(os.path.join(metadata_path,"*.xml"))
+    assert(metadata_files),("no metadata files available")
+
+    for file_path in metadata_files:
+        file_ = os.path.basename(file_path)
+        inv = read_inventory(file_path)
         inv_net, inv_sta, inv_fmt = file_.split(".")
 
-        # skip unwanted inventories
-        if ignore_net and inv_net in ignore_net:
+        # skip unwanted files
+        if inv_net not in acceptable_networks:
             continue
 
-        if ignore_sta and f"{inv_net}.{inv_sta}" in ignore_sta:
+        if ignore_sta[inv_net] and f"{inv_sta}" in ignore_sta[inv_net]:
             continue
 
-        # check that there is only one station in the inventory
+        # check that there is only one station in the file
         unique_networks = list(set(inv.get_contents()["networks"]))
         unique_stations = list(set(inv.get_contents()["stations"]))
 
-        if len(unique_networks) > 1 or len(unique_stations) > 1:
-            warnings.warn(f"Skipping {file_}: there is metadata about "
-                          f"more than one station.")
-            continue
+        assert(len(unique_networks) == 1 and len(unique_stations) == 1),(
+            f"{file_} contains info about more than one station")
 
-        # check that the metadata filename matches the station it contains
-        if f"{inv_net}.{inv_sta}" != unique_stations[0].split(" ")[0]:
-            warnings.warn(f"Skipping {file_}: the file name does not match "
-                          f"the name of the station in the metadata.")
-            continue
+        # check that the file is named after the corresponding station
+        assert(f"{inv_net}.{inv_sta}" == unique_stations[0].split(" ")[0]),(
+             f"{file_} is not named after the corresponding station")
 
-        # at this point we are sure the inventory contains information only
+        # at this point we are sure the file contains information
         # about one station, however, sometimes the station configuration
         # changed during its deployement, resulting in multiple network,
         # station, and channel objects: loop through them
         lon = []
         lat = []
         elv = []
-        cha = []
 
         for net_obj in inv:
             for sta_obj in net_obj:
                 lon.append(sta_obj.longitude)
                 lat.append(sta_obj.latitude)
                 elv.append(sta_obj.elevation)
-                for cha_obj in sta_obj:
-                    if cha_obj.code in acceptable_channels:
-                        if cha_obj.code[-1] in cmpts:
-                            cha.append(cha_obj.code)
 
         # check that the station coordinates did not change over its deployment
-        if len(set(lon)) > 1 or len(set(lat)) > 1 or len(set(elv)) > 1:
-            warnings.warn(f"Skipping {file_}: contains different coordinates "
-                          f"for the same station.")
-            continue
+        lon = list(set(lon))
+        lat = list(set(lat))
+        elv = list(set(elv))
 
-        # check that there are channels
-        if not cha:
-            warnings.warn(f"Skipping {file_}: no channels found.")
-
-        # eliminate repeated channels
-        cha = list(set(cha))
-
-        # check that there is information for all the requested components
-        avail_cmpts = []
-        for c in cha:
-            avail_cmpts.append(c[-1])
-        avail_cmpts = list(set(avail_cmpts))
-
-        if avail_cmpts.sort() != cmpts.sort():
-            warnings.warn(f"Skipping {file_}: not all the requested components "
-                          f"are available")
-            continue
+        assert(len(lon) == 1 and len(lat) == 1 and len(elv) == 1),(
+            f"{file_} contains different coordinates for the same station")
 
         code = f"{inv_net}.{inv_sta}"
         stations[code] = {"net":inv_net,
@@ -95,8 +77,8 @@ def scan_stations(metadata_path, cmpts, ignore_net=None, ignore_sta=None):
                           "lon":lon[0],
                           "lat":lat[0],
                           "elv":elv[0],
-                          "cha":cha,
                          }
+
     return stations
 
 
@@ -135,7 +117,7 @@ def scan_pairs(stations):
     return pairs
 
 
-def scan_waveforms(data_path, stations):
+def scan_waveforms(data_path, stations, chans):
     """
     List relative path of all waveforms files inside data_path
     and their time span
@@ -145,13 +127,12 @@ def scan_waveforms(data_path, stations):
     data_path structure: data_path/network/station/waveforms
 
     """
+    stations_codes = list(stations.keys())
+    stations_codes.sort()
 
     waveforms_paths = []
     stations_recording_start = []
     stations_recording_end = []
-
-    stations_codes = list(stations.keys())
-    stations_codes.sort()
 
     for sta_code in stations_codes:
         net, sta = sta_code.split(".")
@@ -161,7 +142,14 @@ def scan_waveforms(data_path, stations):
 
         # keep only waveforms from desired channels
         sta_waveforms_files = [x for x in sta_waveforms_files
-                               if x.split(".")[2] in stations[sta_code]["cha"]]
+                               if x.split(".")[2] in chans[net]]
+
+        # check that there is data for all requested channels
+        avail_chans = [x.split(".")[2] for x in sta_waveforms_files]
+        avail_chans = list(set(avail_chans))
+        for ch in chans[net]:
+            assert(ch in avail_chans),(
+                f"{sta_code} misses some of the requested data channels")
 
         # list waveforms paths
         sta_waveforms_paths = [os.path.join(net,sta,x)
