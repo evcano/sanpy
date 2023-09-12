@@ -2,6 +2,7 @@ import numpy as np
 import shutil
 import sys
 import os
+from glob import glob
 from mpi4py import MPI
 from obspy import read, Stream, UTCDateTime
 from obspy.io.sac.sactrace import SACTrace
@@ -21,15 +22,20 @@ nproc = comm.Get_size()
 
 # distribute jobs
 project_path = sys.argv[1]
-season = sys.argv[2]
-
 P = load_project(project_path)
+
+season = sys.argv[2]
+if season != "all":
+    y1, m1, y2, m2 = season.split('_')
+    season_start = UTCDateTime('{}-{}-01'.format(y1, m1))
+    season_end = UTCDateTime('{}-{}-01'.format(y2, m2))
 
 corr_path = os.path.join(P.par['corr_path'], season)
 greens_path = os.path.join(P.par['greens_path'], season)
 log_path = os.path.join(P.par['log_path'], season)
 
-pending_pairs = check_missing_logs(log_path, P.pairs.index)
+pairs_list = P.pairs_list
+pending_pairs = check_missing_logs(log_path, pairs_list)
 
 if len(pending_pairs) == 0:
     print("No pending pairs.")
@@ -51,103 +57,96 @@ if myrank == 0:
     print('Each rank will stack ~{} pairs'.format(npairs_proc))
 
 # do jobs
+#TODO: it may be better to create one folder per corr component
 for pair in pairs_to_stack:
     stpath = os.path.join(P.par['data_path'], pair)
-    corr_files = os.listdir(stpath)
+    for cmp in P.par["corr_cmpts"]:
+        corr_files_cmp = glob(os.path.join(stpath,f"*{cmp}*"))
+        ncorr = 0
+        if not corr_files_cmp:
+            print('No data.')
+            continue
 
-    if not corr_files:
-        print('No data.')
-        write_log(log_path, pair, [0])
-        continue
+        if season != 'all':
+            st = Stream()
+            for corrfile in corr_files_cmp:
+                st_head = read(corrfile,
+                               format=P.par['data_format'],
+                               headonly=True)
 
-    if season != 'all':
-        y1, m1, y2, m2 = season.split('_')
-        start = UTCDateTime('{}-{}-01'.format(y1, m1))
-        end = UTCDateTime('{}-{}-01'.format(y2, m2))
+                tr_start = st_head[0].stats.starttime
+                tr_end = st_head[0].stats.endtime
+                if tr_start >= season_start and tr_end < season_end:
+                    st += read(corrfile, format=P.par['data_format'])
 
-        st = Stream()
+        elif season == 'all':
+            st = read(os.path.join(stpath, f"*{cmp}*"),
+                      format=P.par['data_format'])
 
-        for corrfile in corr_files:
-            corrfile = os.path.join(stpath, corrfile)
+        if len(st) == 0:
+            print('No data.')
+            continue
 
-            st_head = read(corrfile, format=P.par['data_format'],
-                           headonly=True)
+        # discard correlations with high amplitude
+        if P.par['remove_outliers']:
+            X = [np.max(np.abs(tr.data)) for tr in st]
+            X = np.asarray(X)
 
-            tr_start = st_head[0].stats.starttime
-            tr_end = st_head[0].stats.endtime
+            outliers, inliers = modified_zscore(X, thr=3.5)
 
-            if tr_start >= start and tr_end < end:
-                st += read(corrfile, format=P.par['data_format'])
-    elif season == 'all':
-        st = read(os.path.join(stpath, '*'), format=P.par['data_format'])
+            # stack at least 60% of daily correlations
+            keep_these_corr = int(len(st) * 0.6)
 
-    if len(st) == 0:
-        print('No data.')
-        write_log(log_path, pair, [0])
-        continue
+            if len(inliers) < keep_these_corr:
+                print('Less than 60% of {} interstation correlations were\
+                       classified as outliers. Reduce the threshold.')
+                comm.Abort()
 
-    # discard correlations with high amplitude
-    if P.par['remove_outliers']:
-        X = [np.max(np.abs(tr.data)) for tr in st]
-        X = np.asarray(X)
+            st_inliers = Stream()
 
-        outliers, inliers = modified_zscore(X, thr=3.5)
+            for j in inliers:
+                st_inliers.append(st[j])
+        else:
+            st_inliers = st
 
-        # stack at least 60% of daily correlations
-        keep_these_corr = int(len(st) * 0.6)
+        # stack data
+        ncorr = len(st_inliers)
+        st_inliers.stack(stack_type="linear")
+        data = st_inliers[0].data.astype("float32")
 
-        if len(inliers) < keep_these_corr:
-            print('Less than 60% of {} interstation correlations were\
-                   classified as outliers. Reduce the threshold.')
-            comm.Abort()
+        # save stack
+        s1, s2 = pair.split("_")
 
-        st_inliers = Stream()
+        header = {
+            "kstnm": s2,
+            "kcmpnm": cmp,
+            "stla": P.stations[s2]['lat'],
+            "stlo": P.stations[s2]['lon'],
+            "stel": P.stations[s2]['elv'],
+            "kevnm": s1,
+            "evla": P.stations[s1]['lat'],
+            "evlo": P.stations[s1]['lon'],
+            "evdp": P.stations[s1]['elv'],
+            "lcalda": 1,
+            "dist": P.pairs[pair]['dis'],
+            "delta": P.par["dt"],
+            "b": -P.par['maxlag'],
+            "e": P.par['maxlag']}
 
-        for j in inliers:
-            st_inliers.append(st[j])
-    else:
-        st_inliers = st
+        tr = SACTrace(data=data, **header)
+        outfile = os.path.join(corr_path, f"{pair}_{cmp}.sac")
+        tr.write(outfile)
 
-    # stack data
-    ncorr = len(st_inliers)
-    st_inliers.stack(stack_type="linear")
-    data = st_inliers[0].data.astype("float32")
-
-    # save stack
-    s1, s2 = pair.split("_")
-
-    header = {
-        "kstnm": s2,
-        "kcmpnm": P.stations['cmp'][s2],
-        "stla": P.stations['lat'][s2],
-        "stlo": P.stations['lon'][s2],
-        "stel": P.stations['elv'][s2],
-        "kevnm": s1,
-        "evla": P.stations['lat'][s1],
-        "evlo": P.stations['lon'][s1],
-        "evdp": P.stations['elv'][s1],
-        "lcalda": 1,
-        "dist": P.pairs['dis'][pair],
-        "delta": P.par["dt"],
-        "b": -P.par['maxlag'],
-        "e": P.par['maxlag']}
-
-    tr = SACTrace(data=data, **header)
-    outfile = os.path.join(corr_path, '{}.sac'.format(pair))
-    tr.write(outfile)
-
-    # compute greens function
-    if P.par['compute_greens']:
-        tr = tr.to_obspy_trace()
-        _, _, sym = correlation_branches(tr, branch='all')
-        sym.data = np.diff(sym.data, n=1) * -1.0
-        outfile = os.path.join(greens_path, '{}.sac'.format(pair))
-        sym.write(outfile)
+        # compute greens function
+        if P.par['compute_greens']:
+            tr = tr.to_obspy_trace()
+            _, _, sym = correlation_branches(tr, branch='all')
+            sym.data = np.diff(sym.data, n=1) * -1.0
+            outfile = os.path.join(greens_path, f"{pair}_{cmp}.sac")
+            sym.write(outfile)
 
     write_log(log_path, pair, [ncorr])
-
     npairs_proc -= 1
-
     if myrank == 0:
         print('~{} pairs left per core'.format(npairs_proc))
 

@@ -8,7 +8,7 @@ from sanpy.base.project_functions import (list_waveforms_perday,
                                           scan_pairs,
                                           scan_waveforms)
 
-
+#TODO: create other classes by inheriting the Preprocessing_Project class
 class Preprocessing_Project(object):
     def __init__(self, par):
         if isinstance(par['ignore_net'], str):
@@ -126,27 +126,33 @@ class Correlation_Project(object):
         return plist
 
 class Stacking_Project(object):
-    def __init__(self, parameters):
-        # set some parameters
-        if isinstance(parameters['ignore_net'], str):
-            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
-                                                     dtype=str).tolist()
+    def __init__(self, par):
+        if isinstance(par['ignore_net'], str):
+            par['ignore_net'] = np.genfromtxt(par['ignore_net'],
+                                              dtype=str).tolist()
 
-        if isinstance(parameters['ignore_sta'], str):
-            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
-                                                     dtype=str).tolist()
+        if isinstance(par['ignore_sta'], str):
+            par['ignore_sta'] = np.genfromtxt(par['ignore_sta'],
+                                              dtype=str).tolist()
 
-        parameters['corr_path'] = os.path.join(parameters['output_path'],
-                                               'stacked_correlations')
+        par['corr_path'] = os.path.join(par['output_path'],
+                                        'stacked_correlations')
 
-        parameters['log_path'] = os.path.join(parameters['corr_path'], 'log')
+        par['log_path'] = os.path.join(par['corr_path'], 'log')
 
-        parameters['greens_path'] = os.path.join(parameters['output_path'],
-                                                 'stacked_greens')
+        par['greens_path'] = os.path.join(par['output_path'],
+                                          'stacked_greens')
 
-        self.par = parameters
-        self.stations = scan_stations(self.par)
-        self.pairs = scan_pairs(self.par, self.stations)
+        self.par = par
+
+    def setup(self):
+        self.stations = scan_stations(metadata_path=self.par["metadata_path"],
+                                      cmpts=self.par["data_cmpts"],
+                                      ignore_net=self.par["ignore_net"],
+                                      ignore_sta=self.par["ignore_sta"]
+                                     )
+
+        self.pairs = scan_pairs(self.stations)
 
         # setup output directory
         if not os.path.isdir(self.par['corr_path']):
@@ -157,6 +163,25 @@ class Stacking_Project(object):
 
         if not os.path.isdir(self.par['greens_path']):
             os.makedirs(self.par['greens_path'])
+
+    @property
+    def stations_list(self):
+        stalist = list(self.stations.keys())
+        stalist.sort()
+        return stalist
+
+    @property
+    def pairs_list(self):
+        plist = list(self.pairs.keys())
+        plist.sort()
+        return plist
+
+    @property
+    def unique_pairs_list(self):
+        plist = itertools.combinations_with_replacement(self.stations_list, 2)
+        plist = [f"{p[0]}_{p[1]}" for p in plist]
+        plist.sort()
+        return plist
 
 
 class Control_Project(object):
