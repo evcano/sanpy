@@ -24,6 +24,7 @@ class Preprocessing_Project(object):
             chans=self.par["data_chans"]
         )
 
+        # setup output directory
         for code in self.stations_list:
             net, sta = code.split(".")
             dir_ = os.path.join(self.par['output_path'], net, sta)
@@ -44,57 +45,76 @@ class Correlation_Project(Preprocessing_Project):
         par['corr_nfft'] = next_fast_len(2 * par['corr_npts'] - 1)
         par['save_npts'] = int((2. * par['maxlag'] * par['fs']) + 1)
 
-        par['output_path'] = os.path.join(par['output_path'], 'daily_corr')
-        par['psd_path'] = os.path.join(par['output_path'], 'psd')
-        par['log_path'] = os.path.join(par['output_path'], 'log')
+        par['corr_path'] = os.path.join(par['output_path'], 'daily_corr')
+        par['psd_path'] = os.path.join(par['output_path'], 'daily_psd')
+        par['log_path'] = os.path.join(par['output_path'], 'correlation_log')
 
-        data_cmpts = []
-        for cmp in par['corr_cmpts']:
-            c1, c2 = cmp
-            data_cmpts.extend((c1,c2))
-        data_cmpts = list(set(data_cmpts))
-        par['data_cmpts'] = data_cmpts
+        par['data_cmpts'] = self._check_data_cmpts(par['data_chans'],par['corr_cmpts'])
 
         self.par = par
 
     def setup(self):
-        self.stations = scan_stations(metadata_path=self.par["metadata_path"],
-                                      cmpts=self.par["data_cmpts"],
-                                      ignore_net=self.par["ignore_net"],
+        self.stations = scan_metadata(metadata_path=self.par["metadata_path"],
+                                      chans=self.par["data_chans"],
                                       ignore_sta=self.par["ignore_sta"]
                                      )
 
-        self.pairs = scan_pairs(self.stations)
-
         self.waveforms_paths, self.data_span = scan_waveforms(
             data_path=self.par["data_path"],
-            stations=self.stations
+            stations=self.stations,
+            chans=self.par["data_chans"]
         )
+
+        self.pairs = scan_pairs(self.stations)
 
         self.waveforms_paths_perday = list_waveforms_perday(
             self.waveforms_paths, self.data_span)
 
-
-        # at this point, all data is supposed to be processed and have the same
-        # sampling rate, do a shallow check
-        st = read(os.path.join(self.par['data_path'], self.waveforms_paths[0]))
-        if st[0].stats['delta'] != self.par['dt']:
-            print('Incorrect data sampling rate. Change it to {}.'.format(
-                st[0].stats['delta']))
-
         # setup output directory
-        for pair in self.pairs_list:
-            tmp = os.path.join(self.par['output_path'], pair)
-            if not os.path.isdir(tmp):
-                os.makedirs(tmp)
+        for cmp in self.par["corr_cmpts"]:
+            for pair in self.pairs_list:
+                dir_ = os.path.join(self.par['corr_path'], cmp, pair)
+                if not os.path.isdir(dir_):
+                    os.makedirs(dir_)
 
-        for station in self.stations_list:
-            tmp = os.path.join(self.par['psd_path'], station)
-            if not os.path.isdir(tmp):
-                os.makedirs(tmp)
+        if self.par["save_psd"]:
+            for cmp in self.par["data_cmpts"]:
+                for station in self.stations_list:
+                    dir_ = os.path.join(self.par['psd_path'], cmp, station)
+                    if not os.path.isdir(dir_):
+                        os.makedirs(dir_)
 
         if not os.path.isdir(self.par['log_path']):
             os.makedirs(self.par['log_path'])
+
+    def _check_data_cmpts(self,data_chans, corr_cmpts):
+        avail_options = ["EE","NN","ZZ","TT", "RR"]
+
+        # based on the requested correlation components, check what data
+        # components are required
+        required_cmpts = []
+
+        for cmp in corr_cmpts:
+            assert(cmp in avail_options),(
+                f"incorrect corr_cmpts; available options: {avail_options}")
+            if cmp in ["EE", "NN", "ZZ"]:
+                required_cmpts.append(cmp[0])
+            elif cmp in ["RR", "TT"]:
+                required_cmpts.extend(["E", "N"])
+
+        required_cmpts = list(set(required_cmpts))
+
+        # based on the read data channels, check that all required data
+        # components are available
+        for net in data_chans.keys():
+            net_avail_cmpts = []
+            for ch in data_chans[net]:
+                net_avail_cmpts.extend(ch[-1])
+            for cmp in required_cmpts:
+                assert(cmp in net_avail_cmpts),(
+                    f"data component {cmp} not available for network {net}")
+
+        return required_cmpts
 
     @property
     def pairs_list(self):
@@ -102,60 +122,47 @@ class Correlation_Project(Preprocessing_Project):
         plist.sort()
         return plist
 
-    @property
-    def unique_pairs_list(self):
-        plist = itertools.combinations_with_replacement(self.stations_list, 2)
-        plist = [f"{p[0]}_{p[1]}" for p in plist]
-        plist.sort()
-        return plist
 
 class Stacking_Project(Correlation_Project):
     def __init__(self, par):
         par['corr_path'] = os.path.join(par['output_path'], 'stacked_corr')
-        par['log_path'] = os.path.join(par['corr_path'], 'log')
         par['greens_path'] = os.path.join(par['output_path'], 'stacked_greens')
+        par['log_path'] = os.path.join(par['output_path'], 'stacking_log')
 
         self.par = par
 
     def setup(self):
-        self.stations = scan_stations(metadata_path=self.par["metadata_path"],
-                                      cmpts=self.par["data_cmpts"],
-                                      ignore_net=self.par["ignore_net"],
+        self.stations = scan_metadata(metadata_path=self.par["metadata_path"],
+                                      chans=self.par["data_chans"],
                                       ignore_sta=self.par["ignore_sta"]
                                      )
 
         self.pairs = scan_pairs(self.stations)
 
         # setup output directory
-        if not os.path.isdir(self.par['corr_path']):
-            os.makedirs(self.par['corr_path'])
+        if not os.path.isdir(self.par["corr_path"]):
+            os.makedirs(self.par["corr_path"])
+
+        if self.par["compute_greens"]:
+            if not os.path.isdir(self.par["greens_path"]):
+                os.makedirs(self.par["greens_path"])
 
         if not os.path.isdir(self.par['log_path']):
             os.makedirs(self.par['log_path'])
 
-        if not os.path.isdir(self.par['greens_path']):
-            os.makedirs(self.par['greens_path'])
-
 
 class Control_Project(object):
-    def __init__(self, parameters):
-        # set some parameters
-        if isinstance(parameters['ignore_net'], str):
-            parameters['ignore_net'] = np.genfromtxt(parameters['ignore_net'],
-                                                     dtype=str).tolist()
-
-        if isinstance(parameters['ignore_sta'], str):
-            parameters['ignore_sta'] = np.genfromtxt(parameters['ignore_sta'],
-                                                     dtype=str).tolist()
-
-        parameters['log_path'] = os.path.join(parameters['output_path'], 'log')
-
-        tmp = os.listdir(parameters['data_path'])
-        parameters['seasons'] = [d for d in tmp if d[0:2] == '20']
-
+    def __init__(self, par):
+        par['log_path'] = os.path.join(par['output_path'], 'control_log')
         self.par = parameters
-        self.stations = scan_stations(self.par)
-        self.pairs = scan_pairs(self.par, self.stations)
+
+    def setup(self):
+        self.stations = scan_metadata(metadata_path=self.par["metadata_path"],
+                                      chans=self.par["data_chans"],
+                                      ignore_sta=self.par["ignore_sta"]
+                                     )
+
+        self.pairs = scan_pairs(self.stations)
 
         # setup output directory
         if not os.path.isdir(self.par['log_path']):
