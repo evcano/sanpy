@@ -84,13 +84,14 @@ def scan_metadata(metadata_path, chans, ignore_sta=None):
 
 def scan_pairs(stations):
     """
-    We list all station pairs including repetitions such as AA, AB, BA
+    We list unique station pairs allowing repetition of stations, i.e.,
+    AA, BB, ...
     """
     pairs = {}
 
     stations_codes = list(stations.keys())
     stations_codes.sort()
-    pairs_obj = itertools.product(stations_codes, stations_codes)
+    pairs_obj = itertools.combinations_with_replacement(stations_codes,2)
 
     for pair in pairs_obj:
         s1 = pair[0]
