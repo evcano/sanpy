@@ -94,31 +94,35 @@ def uniform_time_normalization(corr):
     return corr
 
 
-def uniform_spectral_whitening(fft, single_psd):
-    fft = np.divide(fft, single_psd)
-
-    return fft
-
-
-def xcorr(fft, stations, pairs, cmp, par):
-    lags = correlation_lags(par['corr_npts'], par['corr_npts'])
-    maxlag = int(par["maxlag"] / par['dt'])  # maxlag to store (in samples)
+def xcorr(data_fft, stations_win, corr_cmp, P):
+    lags = correlation_lags(P.par['corr_npts'], P.par['corr_npts'])
+    maxlag = int(P.par["maxlag"] / P.par['dt'])  # maxlag to store (in samples)
     store_lags = np.where(np.abs(lags) <= maxlag)[0]
 
-    cmp1, cmp2 = cmp
+    assert(corr_cmp in ["EE","NN","ZZ"]),("incorrect component")
+    c = corr_cmp[0]
+
+    pairs_win = []
     corr = []
 
-    for pair in pairs[cmp]:
+    for pair in P.pairs_list:
         sta1, sta2 = pair.split("_")
-        idx1 = stations[cmp1].index(sta1)
-        idx2 = stations[cmp2].index(sta2)
+
+        flag1 = sta1 in stations_win[c]
+        flag2 = sta2 in stations_win[c]
+
+        if not flag1 or not flag2:
+            continue
+
+        i1 = stations_win[c].index(sta1)
+        i2 = stations_win[c].index(sta2)
 
         # linear cross-correlation of sta1 with sta2 as in equation 11 of
         # Tromp et al. 2010
-        tmp_corr = fft[cmp1][idx1, :] * np.conj(fft[cmp2][idx2, :])
+        tmp_corr = data_fft[c][i1, :] * np.conj(data_fft[c][i2, :])
 
         # convert to time domain, this results in [pos_lags, neg_lags]
-        tmp_corr = np.real(np.fft.irfft(tmp_corr, par['corr_nfft'],
+        tmp_corr = np.real(np.fft.irfft(tmp_corr, P.par['corr_nfft'],
                                         norm="backward"))
 
         # switch second and first halves of corr to obtain [neg_lags, pos_lags]
@@ -130,8 +134,69 @@ def xcorr(fft, stations, pairs, cmp, par):
         # store lags of interest
         tmp_corr = tmp_corr[store_lags]
 
+        pairs_win.append(pair)
         corr.append(tmp_corr)
 
     corr = np.array(corr)
 
-    return corr
+    return pairs_win, corr
+
+
+def xcorr_rot(data_fft, stations_win, corr_cmp, P):
+    lags = correlation_lags(P.par['corr_npts'], P.par['corr_npts'])
+    maxlag = int(P.par["maxlag"] / P.par['dt'])  # maxlag to store (in samples)
+    store_lags = np.where(np.abs(lags) <= maxlag)[0]
+
+    assert(corr_cmp in ["RR", "TT"]),("incorrect component")
+
+    pairs_win = []
+    corr = []
+
+    for pair in P.pairs_list:
+        sta1, sta2 = pair.split("_")
+
+        flag1 = sta1 in stations_win["E"] and sta1 in stations_win["N"]
+        flag2 = sta2 in stations_win["E"] and sta2 in stations_win["N"]
+
+        if not flag1 or not flag2:
+            continue
+
+        i1_E = stations_win["E"].index(sta1)
+        i1_N = stations_win["N"].index(sta1)
+
+        i2_E = stations_win["E"].index(sta2)
+        i2_N = stations_win["N"].index(sta2)
+
+        if corr_cmp == "RR":
+            w1 = np.cos(np.deg2rad(P.pairs[pair]["az"]))
+            w2 = np.sin(np.deg2rad(P.pairs[pair]["az"]))
+        elif corr_cmp == "TT":
+            w1 = -np.sin(np.deg2rad(P.pairs[pair]["az"]))
+            w2 = np.cos(np.deg2rad(P.pairs[pair]["az"]))
+
+        fft_sta1 = w1 * data_fft["N"][i1_N,:] + w2 * data_fft["E"][i1_E,:]
+        fft_sta2 = w1 * data_fft["N"][i2_N,:] + w2 * data_fft["E"][i2_E,:]
+
+        # linear cross-correlation of sta1 with sta2 as in equation 11 of
+        # Tromp et al. 2010
+        tmp_corr = fft_sta1 * np.conj(fft_sta2)
+
+        # convert to time domain, this results in [pos_lags, neg_lags]
+        tmp_corr = np.real(np.fft.irfft(tmp_corr, P.par['corr_nfft'],
+                                        norm="backward"))
+
+        # switch second and first halves of corr to obtain [neg_lags, pos_lags]
+        tmp_corr = np.fft.fftshift(tmp_corr)
+
+        # eliminate effect of zero-padding
+        tmp_corr = my_centered(tmp_corr, len(lags))
+
+        # store lags of interest
+        tmp_corr = tmp_corr[store_lags]
+
+        pairs_win.append(pair)
+        corr.append(tmp_corr)
+
+    corr = np.array(corr)
+
+    return pairs_win, corr
