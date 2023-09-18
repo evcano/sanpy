@@ -10,6 +10,10 @@ from sanpy.base.project_functions import (list_waveforms_perday,
 
 class Preprocessing_Project(object):
     def __init__(self, par):
+        if par["ignore_sta"]:
+            par["ignore_sta"] = np.genfromtxt(par["ignore_sta"],
+                                              dtype=str).tolist()
+
         self.par = par
 
     def setup(self):
@@ -40,6 +44,10 @@ class Preprocessing_Project(object):
 
 class Correlation_Project(Preprocessing_Project):
     def __init__(self, par):
+        if par["ignore_sta"]:
+            par["ignore_sta"] = np.genfromtxt(par["ignore_sta"],
+                                              dtype=str).tolist()
+
         par['fs'] = 1. / par['dt']
         par['corr_npts'] = int((par['corr_dur'] * par['fs']) + 1)
         par['corr_nfft'] = next_fast_len(2 * par['corr_npts'] - 1)

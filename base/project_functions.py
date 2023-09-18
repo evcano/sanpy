@@ -35,7 +35,7 @@ def scan_metadata(metadata_path, chans, ignore_sta=None):
         if inv_net not in acceptable_networks:
             continue
 
-        if ignore_sta[inv_net] and f"{inv_sta}" in ignore_sta[inv_net]:
+        if ignore_sta and f"{inv_net}.{inv_sta}" in ignore_sta:
             continue
 
         # check that there is only one station in the file
