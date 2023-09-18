@@ -5,7 +5,7 @@ from obspy import read, Stream
 from sanpy.util.apparent_velocity import compute_apparent_velocity
 
 
-def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
+def plot_correlations(data_path, cmp, data_format, pairs=None, maxtime=None,
                       bandpass=None, global_normalization=False, yaxis=None,
                       amplitude_only=False, apparent_velocity=False):
 
@@ -13,7 +13,7 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
     st = Stream()
 
     if len(pairs) > 0:
-        files = ['{}.{}'.format(x, data_format) for x in pairs]
+        files = [f"{x}_{cmp}.{data_format}" for x in pairs]
 
         for f in files:
             stpath = os.path.join(data_path, f)
@@ -77,7 +77,7 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
     # setup figure
     fig, ax = plt.subplots()
 
-    ax.set_title('Noise correlations')
+    ax.set_title(f'Noise correlations {cmp.upper()}')
     ax.set_xlabel('Lag [s]')
 
     if yaxis and yaxis == 'dis' and amplitude_only is False:
@@ -115,7 +115,7 @@ def plot_correlations(data_path, data_format, pairs=None, maxtime=None,
     return
 
 
-def plot_greens(data_path, data_format, pairs=None, maxtime=None,
+def plot_greens(data_path, cmp, data_format, pairs=None, maxtime=None,
                 bandpass=None, global_normalization=False, yaxis=None,
                 amplitude_only=False, apparent_velocity=False):
 
@@ -123,7 +123,7 @@ def plot_greens(data_path, data_format, pairs=None, maxtime=None,
     st = Stream()
 
     if pairs:
-        files = ['{}.{}'.format(x, data_format) for x in pairs]
+        files = [f"{x}_{cmp}.{data_format}" for x in pairs]
 
         for f in files:
             stpath = os.path.join(data_path, f)
@@ -177,7 +177,7 @@ def plot_greens(data_path, data_format, pairs=None, maxtime=None,
     # setup figure
     fig, ax = plt.subplots()
 
-    ax.set_title("Empirical Green's functions")
+    ax.set_title(f"Empirical Green's functions {cmp.upper()}")
     ax.set_xlabel('Time [s]')
 
     if yaxis and yaxis == 'dis' and amplitude_only is False:
