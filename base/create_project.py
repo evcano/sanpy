@@ -1,3 +1,4 @@
+import os
 import sys
 import yaml
 
@@ -33,5 +34,7 @@ if __name__ == '__main__':
 
     P.setup()
 
-    project_file = './projects/{}_{}.pkl'.format(P.par['name'], option)
+    project_file = os.path.join(os.path.dirname(parfile),
+                                f"{P.par['name']}_{option}.pkl")
+
     save_project(P, project_file)
