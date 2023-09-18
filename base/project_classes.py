@@ -55,7 +55,7 @@ class Correlation_Project(Preprocessing_Project):
 
         par['corr_path'] = os.path.join(par['output_path'], 'daily_corr')
         par['psd_path'] = os.path.join(par['output_path'], 'daily_psd')
-        par['log_path'] = os.path.join(par['output_path'], 'correlation_log')
+        par['log_path'] = os.path.join(par['output_path'], 'log_correlation')
 
         par['data_cmpts'] = self._check_data_cmpts(par['data_chans'],par['corr_cmpts'])
 
@@ -135,7 +135,7 @@ class Stacking_Project(Correlation_Project):
     def __init__(self, par):
         par['corr_path'] = os.path.join(par['output_path'], 'stacked_corr')
         par['greens_path'] = os.path.join(par['output_path'], 'stacked_greens')
-        par['log_path'] = os.path.join(par['output_path'], 'stacking_log')
+        par['log_path'] = os.path.join(par['output_path'], 'log_stacking')
 
         self.par = par
 
@@ -161,7 +161,7 @@ class Stacking_Project(Correlation_Project):
 
 class Control_Project(object):
     def __init__(self, par):
-        par['log_path'] = os.path.join(par['output_path'], 'control_log')
+        par['log_path'] = os.path.join(par['output_path'], 'log_control')
         self.par = parameters
 
     def setup(self):
