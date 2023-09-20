@@ -24,6 +24,7 @@ def scan_metadata(metadata_path, chans, ignore_sta=None):
         acceptable_networks.append(key)
 
     metadata_files = glob(os.path.join(metadata_path,"*.xml"))
+    metadata_files.sort()
     assert(metadata_files),("no metadata files available")
 
     for file_path in metadata_files:
@@ -216,7 +217,8 @@ def list_waveforms_perday(waveforms_paths, data_span):
     if counter == len(waveforms_paths):
         return waveforms_paths_perday
     else:
-        print("Error: not all waveforms were listed\n")
+        x = len(waveforms_paths)-counter
+        print(f"Error: {x}  waveforms were not listed\n")
         return
 
 

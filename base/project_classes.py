@@ -133,6 +133,10 @@ class Correlation_Project(Preprocessing_Project):
 
 class Stacking_Project(Correlation_Project):
     def __init__(self, par):
+        if par["ignore_sta"]:
+            par["ignore_sta"] = np.genfromtxt(par["ignore_sta"],
+                                              dtype=str).tolist()
+
         par['corr_path'] = os.path.join(par['output_path'], 'stacked_corr')
         par['greens_path'] = os.path.join(par['output_path'], 'stacked_greens')
         par['log_path'] = os.path.join(par['output_path'], 'log_stacking')
