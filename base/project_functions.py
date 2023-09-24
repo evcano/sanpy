@@ -192,34 +192,19 @@ def list_waveforms_perday(waveforms_paths, data_span):
     waveforms_paths_perday = {}
 
     for day in data_span:
-        # determine file-name prefix for the day
-        day1 = day.replace("-", "")
-        day2 = UTCDateTime(day) + 86400
-        day2 = str(day2.date)
-        day2 = day2.replace("-", "")
-        day_prefix = f"{day1}T000000Z.{day2}T000000Z"
+        waveforms_paths_perday[day] = []
 
-        day_waveforms = []
+    for wpath in waveforms_paths:
+        fname = os.path.basename(wpath)
+        net, sta, cha, loc, sdate, edate, fmt = fname.split(".")
+        sday, _ = sdate.split("T")
+        sday = f"{sday[0:4]}-{sday[4:6]}-{sday[6:]}"
+        waveforms_paths_perday[sday].append(wpath)
 
-        for i, wpath in enumerate(waveforms_paths):
-            fname = os.path.basename(wpath)
-            if day_prefix in fname:
-                day_waveforms.append(waveforms_paths[i])
+    for day in data_span:
+        waveforms_paths_perday[day].sort()
 
-        day_waveforms.sort()
-        waveforms_paths_perday[day] = day_waveforms
-
-    # verify that all waveforms are listed
-    counter = 0
-    for key in waveforms_paths_perday.keys():
-        counter += len(waveforms_paths_perday[key])
-
-    if counter == len(waveforms_paths):
-        return waveforms_paths_perday
-    else:
-        x = len(waveforms_paths)-counter
-        print(f"Error: {x}  waveforms were not listed\n")
-        return
+    return waveforms_paths_perday
 
 
 def save_project(project, filename):
