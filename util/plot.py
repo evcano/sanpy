@@ -26,6 +26,17 @@ def plot_correlations(data_path, cmp, data_format, pairs=None, maxtime=None,
 
     ntr = len(st)
 
+    # filter data
+    if bandpass:
+        st.detrend("linear")
+        st.detrend("demean")
+        st.taper(0.1)
+        st.filter('bandpass',
+                  freqmin=bandpass[0],
+                  freqmax=bandpass[1],
+                  corners=2,
+                  zerophase=True)
+
     # cut data
     if maxtime:
         maxlag = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
@@ -37,15 +48,8 @@ def plot_correlations(data_path, cmp, data_format, pairs=None, maxtime=None,
     maxtime = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
     lags = np.linspace(-maxtime, maxtime, st[0].stats.npts)
 
-    # filter data and normalize
-    if bandpass:
-        st.taper(0.04)
-        st.filter('bandpass',
-                  freqmin=bandpass[0],
-                  freqmax=bandpass[1],
-                  corners=2,
-                  zerophase=True)
 
+    # normalize data
     if global_normalization:
         st.normalize(global_max=True)
     else:
@@ -136,6 +140,17 @@ def plot_greens(data_path, cmp, data_format, pairs=None, maxtime=None,
 
     ntr = len(st)
 
+    # filter data and normalize
+    if bandpass:
+        st.detrend("linear")
+        st.detrend("demean")
+        st.taper(0.1)
+        st.filter('bandpass',
+                  freqmin=bandpass[0],
+                  freqmax=bandpass[1],
+                  corners=2,
+                  zerophase=True)
+
     # cut maximum time
     if maxtime:
         for i in range(0, ntr):
@@ -144,15 +159,7 @@ def plot_greens(data_path, cmp, data_format, pairs=None, maxtime=None,
 
     times = st[0].times()
 
-    # filter data and normalize
-    if bandpass:
-        st.taper(0.04)
-        st.filter('bandpass',
-                  freqmin=bandpass[0],
-                  freqmax=bandpass[1],
-                  corners=2,
-                  zerophase=True)
-
+    # normalize data
     if global_normalization:
         st.normalize(global_max=True)
     else:
