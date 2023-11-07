@@ -146,13 +146,6 @@ def scan_waveforms(data_path, stations, chans):
         sta_waveforms_files = [x for x in sta_waveforms_files
                                if x.split(".")[2] in chans[net]]
 
-        # check that there is data for all requested channels
-        avail_chans = [x.split(".")[2] for x in sta_waveforms_files]
-        avail_chans = list(set(avail_chans))
-        for ch in chans[net]:
-            assert(ch in avail_chans),(
-                f"{sta_code} misses some of the requested data channels")
-
         # list waveforms paths
         sta_waveforms_paths = [os.path.join(net,sta,x)
                                for x in sta_waveforms_files]
