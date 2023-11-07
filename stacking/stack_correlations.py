@@ -2,6 +2,7 @@ import numpy as np
 import shutil
 import sys
 import os
+from glob import glob
 from mpi4py import MPI
 from obspy import read, Stream, UTCDateTime
 from obspy.io.sac.sactrace import SACTrace
@@ -63,7 +64,7 @@ for pair in pairs_to_stack:
     no_daily_corr = {}
     for cmp in P.par["corr_cmpts"]:
         data_path = os.path.join(P.par['data_path'], cmp, pair)
-        waveform_files = os.listdir(data_path)
+        waveform_files = glob(os.path.join(data_path,"*"))
 
         if not waveform_files:
             no_daily_corr[cmp] = 0
