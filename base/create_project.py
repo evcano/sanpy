@@ -12,7 +12,7 @@ from sanpy.base.project_functions import save_project
 
 def read_parfile(parfile):
     with open(parfile, 'r') as _file:
-        par = yaml.load(_file)
+        par = yaml.safe_load(_file)
 
     return par
 
