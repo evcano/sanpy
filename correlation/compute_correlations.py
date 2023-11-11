@@ -6,6 +6,7 @@ import sys
 from mpi4py import MPI
 from obspy import read, UTCDateTime, Stream
 from obspy.io.sac.sactrace import SACTrace
+from scipy.stats import scoreatpercentile
 
 from sanpy.base.functions import (check_missing_logs,
                                   distribute_objects,
@@ -55,6 +56,13 @@ nstations = len(stations_list)
 pairs_list = P.pairs_list
 npairs = len(pairs_list)
 
+# read bad windows
+if P.par['bad_windows']:
+    bad_win = {}
+    for sta in stations_list:
+        file_ = os.path.join(P.par['bad_windows'], f"{sta.upper()}_OUTLIERS.dat")
+        bad_win[sta] = read_bad_windows(file_)
+
 # loop over days
 for day in days_to_correlate:
     # read all data
@@ -69,13 +77,6 @@ for day in days_to_correlate:
         for file_ in waveforms_files:
             st += read(os.path.join(P.par['data_path'], file_),
                        format=P.par['data_format'])
-
-    # determine thresholds to discard transient signals
-    if P.par['remove_transient_signals']:
-        tr_thresholds = transient_signal_thresholds(st,
-                                                    P.par['corr_dur'],
-                                                    P.par['corr_overlap'],
-                                                    thr=P.par['transient_thr'])
 
     # declare arrays to store the correlations/psd of the day
     corr_day = {}
@@ -95,14 +96,22 @@ for day in days_to_correlate:
     for st_win in st.slide(P.par['corr_dur'],
                            P.par['corr_dur']-P.par["corr_overlap"]):
 
-        # remove traces with time gaps or transient signals
+        # remove traces with time gaps or bad windows
         for tr in st_win:
             if tr.stats.npts != P.par['corr_npts']:
                 st_win.remove(tr)
-            elif P.par['remove_transient_signals']:
-                remove_flag = remove_transient_signal(tr, tr_thresholds)
-                if remove_flag:
-                    st_win.remove(tr)
+            elif P.par['bad_windows']:
+                tr_code = f"{tr.stats.network}.{tr.stats.station}"
+                tr_start = tr.stats.starttime
+                tr_end = tr.stats.endtime
+                if day in bad_win[tr_code].keys():
+                    for wstart in bad_win[tr_code][day]:
+                        wend = wstart + 3600.0
+                        flag1 = tr_start <= wstart < tr_end
+                        flag2 = tr_start < wend <= tr_end
+                        if flag1 or flag2:
+                            st_win.remove(tr)
+                            break
 
         # check that there is data
         if not st_win:
@@ -121,7 +130,7 @@ for day in days_to_correlate:
                 continue
 
             st_win_cmp.detrend("demean")
-            st_win_cmp.taper(0.04)
+            st_win_cmp.taper(0.05)
 
             data[cmp] = np.asarray([tr.data for tr in st_win_cmp])
 
@@ -136,6 +145,14 @@ for day in days_to_correlate:
             if P.par["whitening"]:
                 norm_spec = compute_single_psd(data[cmp], P.par)
                 data_fft[cmp] = np.divide(data_fft[cmp], norm_spec)
+
+                for q in range(0, data_fft[cmp].shape[0]):
+                    tmp = data_fft[cmp][q,:]
+                    imin = scoreatpercentile(tmp,5)
+                    imax = scoreatpercentile(tmp,95)
+                    notout = np.where((tmp>=imin)&(tmp<=imax))
+                    cval = np.max(np.abs(tmp[notout]))
+                    data_fft[cmp][q,:] = np.clip(data_fft[cmp][q,:],-cval,cval)
 
         # determine available correlation components
         avail_data_cmpts = list(data.keys())

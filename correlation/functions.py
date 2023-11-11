@@ -1,5 +1,6 @@
 import matplotlib.mlab as mlab
 import numpy as np
+from obspy.core import UTCDateTime
 from scipy import interpolate
 from scipy.signal import correlation_lags
 
@@ -16,8 +17,7 @@ def compute_single_psd(data, par):
                               noverlap=noverlap,
                               detrend="mean")
 
-        # normalize psd amplitude so it matches fft amplitude
-        pxx = np.sqrt(par['fs'] * par['corr_nfft'] * 0.5 * pxx)
+        pxx = np.sqrt(pxx)
         stations_psd.append(pxx)
 
     stations_psd = np.asarray(stations_psd)
@@ -60,30 +60,15 @@ def my_centered(arr, newsize):
     return newarr
 
 
-def remove_transient_signal(tr, tr_thresholds):
-    max_energy = np.max(tr.data ** 2)
-    thr = tr_thresholds[tr.get_id()]
-    if max_energy > thr:
-        return True
-    else:
-        return False
-
-
-def transient_signal_thresholds(st, corr_dur, corr_overlap, thr):
-    tr_thresholds = {}
-
-    # loop over traces
-    for tr in st:
-        energies = []
-        # sliding window over trace
-        for tr_win in tr.slide(corr_dur, corr_dur - corr_overlap):
-            max_energy = np.max(tr_win.data ** 2.0)
-            energies.append(max_energy)
-
-        x = np.median(np.array(energies)) * thr
-        tr_thresholds[tr.get_id()] = x
-
-    return tr_thresholds
+def read_bad_windows(file_):
+    win_dates = np.loadtxt(file_, dtype=str)
+    dates_utc = {}
+    for w in win_dates:
+        utc = UTCDateTime(w)
+        if utc.date.isoformat() not in dates_utc.keys():
+            dates_utc[utc.date.isoformat()] = []
+        dates_utc[utc.date.isoformat()].append(utc)
+    return dates_utc
 
 
 def uniform_time_normalization(corr):
