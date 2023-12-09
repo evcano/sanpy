@@ -65,13 +65,19 @@ for i, waveform_path in enumerate(waveforms_to_process):
     st = read(tmp, format=data_format)
 
     # preproccess waveform (inplace)
-    check_sample_aligment(st)
-    fill_gaps(st, P.par)
-    preprocess(st, P.par, inv)
+    st = check_sample_aligment(st)
+    st = fill_gaps(st, P.par)
+    st = preprocess(st, P.par, inv)
+
+    if not st:
+        print(f"empty stream; skipping")
+        continue
 
     # ensure single precision float
     for tr in st:
         tr.data = tr.data.astype("float32")
+        if data_format == "mseed":
+            tr.stats.mseed.encoding = "FLOAT32"
 
     # save waveform
     waveform_name_noext = waveform_name[:-len(data_format)-1]

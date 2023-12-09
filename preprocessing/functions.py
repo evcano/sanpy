@@ -26,7 +26,7 @@ def check_sample_aligment(st):
                 shift = dt - shift  # right shift
 
             tr.detrend(type="demean")
-            tr.detrend(type="simple")
+            tr.detrend(type="linear")
             tr.taper(max_percentage=None, max_length=1.0)
 
             nfft = sf.next_fast_len(tr.stats.npts)
@@ -39,7 +39,7 @@ def check_sample_aligment(st):
             tr.stats.starttime += shift
             del fft, freq_axis, tmp
 
-    return
+    return st
 
 
 def fill_gaps(st, par):
@@ -47,16 +47,28 @@ def fill_gaps(st, par):
     # be filled as we need the records of the previous and following day.
 
     st = st.split()  # we split traces that contain gaps
-    st.sort()  # sort them by increasing time
+    st.sort(keys=["starttime"])  # sort them by increasing time
 
-    # set same dtype for all tr
+    # check that all traces correspond to the same station and channel
+    # set the same data type for all traces
     for tr in st:
+        if tr.stats.network != st[0].stats.network:
+            raise Exception
+        elif tr.stats.station != st[0].stats.station:
+            raise Exception
+        elif tr.stats.channel != st[0].stats.channel:
+            raise Exception
         tr.data = tr.data.astype("float64")
 
-    if len(st) > 1:
+    ntr = len(st)
+
+    if ntr > 1:
         i = 0
 
-        while i < len(st)-1:
+        # if there is a trace at a later time of the current trace,
+        # keep filling gaps, i.e., stop once we are at the last
+        # trace of the stream
+        while i < (ntr - 1):
             t1 = st[i].stats['endtime']
             t2 = st[i+1].stats['starttime']
             dif = t2 - t1  # seconds
@@ -69,7 +81,9 @@ def fill_gaps(st, par):
             else:
                 i += 1
 
-    return
+            ntr = len(st)
+
+    return st
 
 
 def get_pending_waveforms(output_path, waveforms_paths):
@@ -91,7 +105,9 @@ def get_pending_waveforms(output_path, waveforms_paths):
 
 def preprocess(st, par, inv=[]):
     for tr in st:
-        if (tr.stats.npts*tr.stats.delta) < par["taper_length"]:
+        # delete short traces
+        if (tr.stats.npts*tr.stats.delta) < (2.0 * par["taper_length"]):
+            st.remove(tr)
             continue
 
         tr.detrend(type="demean")
@@ -111,6 +127,7 @@ def preprocess(st, par, inv=[]):
         if par["remove_response"]:
             if not inv:
                 print("Inventory was not provided.")
+                raise Exception
 
             # if there is more than 1 response for the channel,
             # remove_response searches for the correct one
@@ -123,4 +140,4 @@ def preprocess(st, par, inv=[]):
                                output=par["units"],
                                plot=False)
 
-    return
+    return st
