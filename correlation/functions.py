@@ -1,35 +1,16 @@
+import matplotlib.pyplot as plt
 import matplotlib.mlab as mlab
 import numpy as np
 from obspy.core import UTCDateTime
 from scipy import interpolate
-from scipy.signal import correlation_lags
+from scipy.signal import correlation_lags, convolve, windows
 
 
-def compute_single_psd(data, par):
-    segnpts = 1024
-    noverlap = segnpts // 2
-    stations_psd = []
-
-    for i in range(0, data.shape[0]):
-        pxx, freqs = mlab.psd(data[i, :],
-                              Fs=par['fs'],
-                              NFFT=segnpts,
-                              noverlap=noverlap,
-                              detrend="mean")
-
-        pxx = np.sqrt(pxx)
-        stations_psd.append(pxx)
-
-    stations_psd = np.asarray(stations_psd)
-    single_psd = np.percentile(stations_psd, q=95, axis=0)
-
-    # interpolate so len(array_psd) = len(fft[:h_nfft+1])
-    interp = interpolate.interp1d(freqs, single_psd)
-
-    freq_fft = np.fft.rfftfreq(par['corr_nfft'], par['dt'])
-    single_psd2 = interp(freq_fft)
-
-    return single_psd2
+def compute_single_spec(data_fft):
+    single_spec = np.percentile(np.abs(np.real(data_fft)), q=95, axis=0)
+    win = windows.hann(10)
+    single_spec = convolve(single_spec,win,mode="same")/np.sum(win)
+    return single_spec
 
 
 def my_centered(arr, newsize):
