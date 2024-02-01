@@ -6,7 +6,10 @@ import sys
 from mpi4py import MPI
 from obspy import read, UTCDateTime, Stream
 from obspy.io.sac.sactrace import SACTrace
+from obspy.signal.invsim import cosine_sac_taper
 from scipy.stats import scoreatpercentile
+from scipy.signal import hilbert
+from stockwell import st as swell
 
 from sanpy.base.functions import (check_missing_logs,
                                   distribute_objects,
@@ -63,8 +66,21 @@ if P.par['bad_windows']:
         file_ = os.path.join(P.par['bad_windows'], f"{sta.upper()}_OUTLIERS.dat")
         bad_win[sta] = read_bad_windows(file_)
 
+# define bandpass filter
+fqvector = np.fft.rfftfreq(P.par["corr_nfft"], P.par["dt"])
+if P.par["bandpass"]:
+    corners = P.par["bandpass"]
+    fqtaper = cosine_sac_taper(freqs=fqvector, flimit=corners)
+else:
+    fqtaper = np.ones(fqvector.size)
+
+cor1_idx = np.argmin(abs(fqvector - corners[1]))
+cor2_idx = np.argmin(abs(fqvector - corners[2]))
+
 # loop over days
 for day in days_to_correlate:
+    day_obj = UTCDateTime(day)
+
     # read all data
     waveforms_files = P.waveforms_paths_perday[day]
 
@@ -78,13 +94,39 @@ for day in days_to_correlate:
             st += read(os.path.join(P.par['data_path'], file_),
                        format=P.par['data_format'])
 
-    # declare arrays to store the correlations/psd of the day
+    # declare array to store the correlations of the day
     corr_day = {}
     count_corr = {}
     for cmp in P.par["corr_cmpts"]:
         corr_day[cmp] = np.zeros((npairs, P.par['save_npts']))
         count_corr[cmp] = np.zeros(npairs)
 
+    # declare array to store phase-weight-stacking coherence
+    if P.par["stack_type"] == "pws":
+        coh = {}
+        for cmp in P.par["corr_cmpts"]:
+            coh[cmp] = np.zeros((npairs, P.par["save_npts"]),dtype=np.complex_)
+
+    # declare array to S-transform coherency for tf-pws stacking
+    if P.par["stack_type"] == "tf-pws":
+        fqmin = corners[1]
+        fqmax = corners[2]
+
+        df = 1.0 / (2 * P.par["maxlag"])
+        f1sw = int(fqmin / df)
+        f2sw = int(fqmax / df)
+        nfreqs = int(f2sw - f1sw + 1)
+
+        taxis = np.arange(P.par["save_npts"]) * P.par["dt"]
+        faxis = np.linspace(fqmin, fqmax, nfreqs)
+        TM, FM = np.meshgrid(taxis, faxis)
+
+        coh = {}
+
+        for cmp in P.par["corr_cmpts"]:
+            coh[cmp] = np.zeros((npairs,nfreqs,P.par["save_npts"]),dtype=np.complex_)
+
+    # declare array to store psd of the day
     if P.par["save_psd"]:
         psd_day = {}
         count_psd = {}
@@ -132,6 +174,9 @@ for day in days_to_correlate:
             st_win_cmp.detrend("demean")
             st_win_cmp.taper(0.05)
 
+            stations_win[cmp] = [f"{tr.stats.network}.{tr.stats.station}"
+                                 for tr in st_win_cmp]
+
             data[cmp] = np.asarray([tr.data for tr in st_win_cmp])
 
             data_fft[cmp] = np.fft.rfftn(data[cmp],
@@ -139,20 +184,28 @@ for day in days_to_correlate:
                                          axes=[1],
                                          norm="backward")
 
-            stations_win[cmp] = [f"{tr.stats.network}.{tr.stats.station}"
-                                 for tr in st_win_cmp]
-
             if P.par["whitening"]:
-                norm_spec = compute_single_psd(data[cmp], P.par)
+                # spectral whitening
+                norm_spec = compute_single_spec(data_fft[cmp])
                 data_fft[cmp] = np.divide(data_fft[cmp], norm_spec)
 
                 for q in range(0, data_fft[cmp].shape[0]):
-                    tmp = data_fft[cmp][q,:]
-                    imin = scoreatpercentile(tmp,5)
-                    imax = scoreatpercentile(tmp,95)
-                    notout = np.where((tmp>=imin)&(tmp<=imax))
-                    cval = np.max(np.abs(tmp[notout]))
-                    data_fft[cmp][q,:] = np.clip(data_fft[cmp][q,:],-cval,cval)
+                    # filter spectrum
+                    data_fft[cmp][q,:] *= fqtaper
+
+                    # determine value to clip the spectrum
+                    tmp = data_fft[cmp][q, cor1_idx:cor2_idx]
+                    imin = scoreatpercentile(tmp, 5)
+                    imax = scoreatpercentile(tmp, 95)
+                    not_outlier = np.where((tmp >= imin) & (tmp <= imax))
+                    cval = np.max(np.abs(tmp[not_outlier]))
+
+                    # clip spectrum to remove outliers/peaks
+                    data_fft[cmp][q,:] = np.clip(data_fft[cmp][q,:], -cval, cval)
+            else:
+                # filter spectrum
+                for q in range(0, data_fft[cmp].shape[0]):
+                    data_fft[cmp][q,:] *= fqtaper
 
         # determine available correlation components
         avail_data_cmpts = list(data.keys())
@@ -181,22 +234,36 @@ for day in days_to_correlate:
                                                       cmp,
                                                       P)
 
-        # time normalization
+        # normalize correlations as in Bowden et al.
+        # all components are normalized by the same value
         max_amps = []
         for cmp in avail_corr_cmpts:
             if corr[cmp].any():
                 x = np.max(np.abs(corr[cmp]), axis=1)
                 max_amps.extend(x)
+
         norm_fact = np.percentile(max_amps, 95)
+
         for cmp in avail_corr_cmpts:
             if corr[cmp].any():
-                corr[cmp] = np.divide(corr[cmp],norm_fact)
+                corr[cmp] = np.divide(corr[cmp], norm_fact)
 
         # stack correlations
         for cmp in avail_corr_cmpts:
             for i, pair in enumerate(pairs_win[cmp]):
                 j = pairs_list.index(pair)
+
                 corr_day[cmp][j,:] += corr[cmp][i,:]
+
+                if P.par["stack_type"] == "pws":
+                    asig = hilbert(corr[cmp][i,:])
+                    asig = np.divide(asig, np.abs(asig))
+                    coh[cmp][j,:] += asig
+                elif P.par["stack_type"] == "tf-pws":
+                    SW = swell.st(corr[cmp][i,:], f1sw, f2sw)
+                    SW = SW / np.abs(SW) * np.exp(2j*np.pi*FM*TM)
+                    coh[cmp][j,:,:] += SW
+
                 count_corr[cmp][j] += 1
 
         # stack psd
@@ -208,22 +275,26 @@ for day in days_to_correlate:
                     psd_day[cmp][j,:] += data_fft[cmp][i,:]
                     count_psd[cmp][j] += 1
 
+    # save correlations of the day
     for cmp in P.par["corr_cmpts"]:
-        # normalize correlations of the day to compute the average
-        count_corr[cmp][count_corr[cmp]== 0] = 1  # to avoid divison by zero
-        corr_day[cmp] = np.divide(corr_day[cmp], count_corr[cmp][:, None])
-
-        # save correlations of the day
-        corr_day[cmp] = corr_day[cmp].astype("float32")
-        tmp = np.nansum(np.abs(corr_day[cmp]), axis=1)
-        idx = np.where(tmp != 0)[0]
-
-        day_obj = UTCDateTime(day)
         day_pairs = []
 
-        for i in idx:
-            pair = pairs_list[i]
-            day_pairs.append(pair)
+        for i, pair in enumerate(pairs_list):
+            if count_corr[cmp][i] == 0:
+                continue
+
+            dcc = corr_day[cmp][i, :] / count_corr[cmp][i]
+            dcc = dcc.astype("float32")
+
+            if P.par["stack_type"] == "pws":
+                wcc = coh[cmp][i,:] / count_corr[cmp][i]
+                dcc = dcc * np.abs(wcc) ** 2
+            elif P.par["stack_type"] == "tf-pws":
+                wcc = coh[cmp][i,:] / count_corr[cmp][i]
+                dccSW = swell.st(dcc, f1sw, f2sw)
+                dccSW = dccSW * np.abs(wcc) ** 2
+                dcc = swell.ist(dccSW, f1sw, f2sw)
+
             s1, s2 = pair.split("_")
 
             header = {
@@ -247,9 +318,10 @@ for day in days_to_correlate:
                 "delta": P.par["dt"],
                 "b": 0.0}
 
-            tr = SACTrace(data=corr_day[cmp][i, :], **header)
+            tr = SACTrace(data=dcc, **header)
             filename = f"{pair}_{cmp}_{day}.{P.par['output_format']}"
             tr.write(os.path.join(P.par['corr_path'], cmp, pair, filename))
+            day_pairs.append(pair)
 
     # compute and save psd of the day
     if P.par['save_psd']:
