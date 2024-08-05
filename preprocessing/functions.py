@@ -25,8 +25,8 @@ def check_sample_aligment(st):
             else:
                 shift = dt - shift  # right shift
 
-            tr.detrend(type="demean")
             tr.detrend(type="linear")
+            tr.detrend(type="demean")
             tr.taper(max_percentage=None, max_length=1.0)
 
             nfft = sf.next_fast_len(tr.stats.npts)
@@ -110,8 +110,8 @@ def preprocess(st, par, inv=[]):
             st.remove(tr)
             continue
 
-        tr.detrend(type="demean")
         tr.detrend(type="linear")
+        tr.detrend(type="demean")
         tr.taper(max_percentage=None,
                  max_length=par["taper_length"])
 
