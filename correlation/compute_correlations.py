@@ -1,3 +1,4 @@
+# TODO: remove pws and tf-pws stacking options since they are not linear
 import itertools
 import numpy as np
 import os
@@ -20,7 +21,7 @@ from sanpy.correlation.functions import *
 
 
 """
-st, fft index equals the station given by "win_stations[index]"
+The index of st, fft correspond to the station given by "win_stations[index]"
 corr index equals the pair given by "win_pairs[index]"
 corr_day index equals the pair given by "all_pairs[index]"
 
@@ -59,23 +60,20 @@ nstations = len(stations_list)
 pairs_list = P.pairs_list
 npairs = len(pairs_list)
 
-# read bad windows
-if P.par['bad_windows']:
-    bad_win = {}
-    for sta in stations_list:
-        file_ = os.path.join(P.par['bad_windows'], f"{sta.upper()}_OUTLIERS.dat")
-        bad_win[sta] = read_bad_windows(file_)
+# define frequency domain taper
+fqax = np.fft.rfftfreq(P.par['corr_nfft'], P.par['dt'])
 
-# define bandpass filter
-fqvector = np.fft.rfftfreq(P.par["corr_nfft"], P.par["dt"])
-if P.par["bandpass"]:
-    corners = P.par["bandpass"]
-    fqtaper = cosine_sac_taper(freqs=fqvector, flimit=corners)
+if P.par['fqtaper']:
+    fqcorners = P.par['fqtaper']
+    fqtaper = cosine_sac_taper(freqs=fqax, flimit=fqcorners)
+    flatfq_idx = np.where((fqax > fqcorners[1]) & (fqax < fqcorners[2]))
 else:
-    fqtaper = np.ones(fqvector.size)
+    fqtaper = np.ones(fqax.size)
+    flatfq_idx = np.arange(0, fqax.size)
 
-cor1_idx = np.argmin(abs(fqvector - corners[1]))
-cor2_idx = np.argmin(abs(fqvector - corners[2]))
+# read transient signals
+if P.par['remove_tsignals']:
+    tsignals = read_tsignals(P.par['tsig_path'], stations_list, P.par['data_cmpts'])
 
 # loop over days
 for day in days_to_correlate:
@@ -109,8 +107,8 @@ for day in days_to_correlate:
 
     # declare array to S-transform coherency for tf-pws stacking
     if P.par["stack_type"] == "tf-pws":
-        fqmin = corners[1]
-        fqmax = corners[2]
+        fqmin = fqcorners[1]
+        fqmax = fqcorners[2]
 
         df = 1.0 / (2 * P.par["maxlag"])
         f1sw = int(fqmin / df)
@@ -138,35 +136,34 @@ for day in days_to_correlate:
     for st_win in st.slide(P.par['corr_dur'],
                            P.par['corr_dur']-P.par["corr_overlap"]):
 
-        # remove traces with time gaps or bad windows
-        for tr in st_win:
-            if tr.stats.npts != P.par['corr_npts']:
-                st_win.remove(tr)
-            elif P.par['bad_windows']:
-                tr_code = f"{tr.stats.network}.{tr.stats.station}"
-                tr_start = tr.stats.starttime
-                tr_end = tr.stats.endtime
-                if day in bad_win[tr_code].keys():
-                    for wstart in bad_win[tr_code][day]:
-                        wend = wstart + 3600.0
-                        flag1 = tr_start <= wstart < tr_end
-                        flag2 = tr_start < wend <= tr_end
-                        if flag1 or flag2:
-                            st_win.remove(tr)
-                            break
-
         # check that there is data
         if not st_win:
             print("no data for window")
             continue
 
-        # for each component, compute fft and apply spectral whitening
+        # for each data component compute fft
         data = {}
         data_fft = {}
         stations_win = {}
 
         for cmp in P.par["data_cmpts"]:
             st_win_cmp = st_win.select(component=cmp)
+
+            # remove traces with time gaps or transient signals
+            # transient signals are independently removed per component
+            for tr in st_win_cmp:
+                if tr.stats.npts != P.par['corr_npts']:
+                    st_win_cmp.remove(tr)
+                elif P.par['remove_tsignals']:
+                    tr_sta = f"{tr.stats.network}.{tr.stats.station}"
+                    for tsig in tsignals[tr_sta][cmp]:
+                        stime1 = tr.stats.starttime
+                        etime1 = tr.stats.endtime
+                        stime2 = tsig[0]
+                        etime2 = tsig[1]
+                        if (stime1 < etime2) and (stime2 < etime1):
+                               st_win_cmp.remove(tr)
+                               break
 
             if not st_win_cmp:
                 continue
@@ -184,39 +181,51 @@ for day in days_to_correlate:
                                          axes=[1],
                                          norm="backward")
 
+        # available data components
+        avail_data_cmpts = list(data.keys())
+
+        # independently apply spectral whitening to each component
+        # and apply frequency taper
+        for cmp in avail_data_cmpts:
             if P.par["whitening"]:
-                # spectral whitening
                 norm_spec = compute_single_spec(data_fft[cmp])
                 data_fft[cmp] = np.divide(data_fft[cmp], norm_spec)
 
                 for q in range(0, data_fft[cmp].shape[0]):
-                    # filter spectrum
+                    # apply frequency taper
                     data_fft[cmp][q,:] *= fqtaper
 
                     # determine value to clip the spectrum
-                    tmp = data_fft[cmp][q, cor1_idx:cor2_idx]
+                    tmp = data_fft[cmp][q, flatfq_idx]
                     imin = scoreatpercentile(tmp, 5)
                     imax = scoreatpercentile(tmp, 95)
                     not_outlier = np.where((tmp >= imin) & (tmp <= imax))
-                    cval = np.max(np.abs(tmp[not_outlier]))
+                    rms = tmp[not_outlier].std()
 
                     # clip spectrum to remove outliers/peaks
-                    data_fft[cmp][q,:] = np.clip(data_fft[cmp][q,:], -cval, cval)
+                    data_fft[cmp][q,:] = np.clip(data_fft[cmp][q,:], -rms, rms)
             else:
-                # filter spectrum
                 for q in range(0, data_fft[cmp].shape[0]):
                     data_fft[cmp][q,:] *= fqtaper
 
+
         # determine available correlation components
-        avail_data_cmpts = list(data.keys())
         avail_corr_cmpts = []
+
         for cmp in P.par["corr_cmpts"]:
-            if cmp in ["EE", "NN", "ZZ"]:
-                if cmp[0] in avail_data_cmpts:
-                    avail_corr_cmpts.append(cmp)
-            elif cmp in ["RR", "TT"]:
-                if "E" in avail_data_cmpts and "N" in avail_data_cmpts:
-                    avail_corr_cmpts.append(cmp)
+            if cmp == "EE" and "E" in avail_data_cmpts:
+                avail_corr_cmpts.append(cmp)
+            elif cmp == "NN" and "N" in avail_data_cmpts:
+                avail_corr_cmpts.append(cmp)
+            elif cmp == "ZZ" and "Z" in avail_data_cmpts:
+                avail_corr_cmpts.append(cmp)
+            elif cmp == "RR" and "E" in avail_data_cmpts and "N" in avail_data_cmpts:
+                avail_corr_cmpts.append(cmp)
+            elif cmp == "TT" and "E" in avail_data_cmpts and "N" in avail_data_cmpts:
+                avail_corr_cmpts.append(cmp)
+
+        if not avail_corr_cmpts:
+            continue
 
         # compute and stack noise correlations
         corr = {}
@@ -241,6 +250,10 @@ for day in days_to_correlate:
             if corr[cmp].any():
                 x = np.max(np.abs(corr[cmp]), axis=1)
                 max_amps.extend(x)
+
+        if not max_amps:
+            print("no correlations computed; skipping to next window")
+            continue
 
         norm_fact = np.percentile(max_amps, 95)
 
@@ -316,7 +329,8 @@ for day in days_to_correlate:
                 "nzsec": day_obj.second,
                 "nzmsec": day_obj.microsecond,
                 "delta": P.par["dt"],
-                "b": 0.0}
+                "b": 0.0,
+            }
 
             tr = SACTrace(data=dcc, **header)
             filename = f"{pair}_{cmp}_{day}.{P.par['output_format']}"
@@ -343,6 +357,8 @@ for day in days_to_correlate:
     ndays_proc -= 1
     if myrank == 0:
         print('~{} days left per core'.format(ndays_proc))
+
+print(f"core {myrank} done")
 
 if myrank == 0:
     shutil.copy(project_path, P.par['corr_path'])
