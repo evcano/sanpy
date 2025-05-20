@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.mlab as mlab
 import numpy as np
+import os
 from obspy.core import UTCDateTime
 from scipy import interpolate
 from scipy.signal import correlation_lags, convolve, windows
@@ -9,7 +10,8 @@ from scipy.signal import correlation_lags, convolve, windows
 def compute_single_spec(data_fft):
     single_spec = np.percentile(np.abs(np.real(data_fft)), q=95, axis=0)
     win = windows.hann(10)
-    single_spec = convolve(single_spec,win,mode="same")/np.sum(win)
+    single_spec = convolve(single_spec, win, mode="same")
+    single_spec /= np.sum(win)
     return single_spec
 
 
@@ -41,15 +43,23 @@ def my_centered(arr, newsize):
     return newarr
 
 
-def read_bad_windows(file_):
-    win_dates = np.loadtxt(file_, dtype=str)
-    dates_utc = {}
-    for w in win_dates:
-        utc = UTCDateTime(w)
-        if utc.date.isoformat() not in dates_utc.keys():
-            dates_utc[utc.date.isoformat()] = []
-        dates_utc[utc.date.isoformat()].append(utc)
-    return dates_utc
+def read_tsignals(inpath, stations_list, cmpts):
+    tsignals = {}
+    for sta in stations_list:
+        tsignals[sta] = {}
+        for cmp in cmpts:
+            fname = os.path.join(inpath,
+                                 f"{sta}.{cmp}_transient_signals.dat"
+                                )
+            tsig_stime = np.loadtxt(fname, usecols=(0), dtype=str)
+            tsig_etime = np.loadtxt(fname, usecols=(1), dtype=str)
+
+            tsig_stime = [UTCDateTime(x) for x in tsig_stime]
+            tsig_etime = [UTCDateTime(x) for x in tsig_etime]
+
+            tsignals[sta][cmp] = [x for x in zip(tsig_stime, tsig_etime)]
+
+    return tsignals
 
 
 def uniform_time_normalization(corr):
