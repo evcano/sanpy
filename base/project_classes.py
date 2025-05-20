@@ -56,6 +56,7 @@ class Correlation_Project(Preprocessing_Project):
         par['corr_path'] = os.path.join(par['output_path'], 'daily_corr')
         par['psd_path'] = os.path.join(par['output_path'], 'daily_psd')
         par['log_path'] = os.path.join(par['output_path'], 'log_correlation')
+        par['tsig_path'] = os.path.join(par['output_path'], 'transient_signals')
 
         par['data_cmpts'] = self._check_data_cmpts(par['data_chans'],par['corr_cmpts'])
 
@@ -94,6 +95,9 @@ class Correlation_Project(Preprocessing_Project):
 
         if not os.path.isdir(self.par['log_path']):
             os.makedirs(self.par['log_path'])
+
+        if self.par["remove_tsignals"]:
+            os.makedirs(self.par['tsig_path'])
 
     def _check_data_cmpts(self,data_chans, corr_cmpts):
         avail_options = ["EE","NN","ZZ","TT", "RR"]
