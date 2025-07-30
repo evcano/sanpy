@@ -4,17 +4,24 @@ import os
 import pickle
 import sys
 from glob import glob
+from mpi4py import MPI
 from scipy.stats import zscore
 from obspy import UTCDateTime
 from sanpy.base.project_functions import load_project
 
 
+comm = MPI.COMM_WORLD
+myrank = comm.Get_rank()
+nproc = comm.Get_size()
+
 project_path = sys.argv[1]
 P = load_project(project_path)
+
 stations_list = P.stations_list
+stations_to_process = distribute_objects(stations_list, nproc, myrank)
 
 # station loop
-for sta in stations_list:
+for sta in stations_to_process:
     fname = os.path.join(P.par["tsig_path"], f"{sta}_max_amps")
     if not os.path.isfile(fname):
         continue
