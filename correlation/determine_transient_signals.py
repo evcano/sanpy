@@ -7,6 +7,7 @@ from glob import glob
 from mpi4py import MPI
 from scipy.stats import zscore
 from obspy import UTCDateTime
+from sanpy.base.functions import distribute_objects
 from sanpy.base.project_functions import load_project
 
 
