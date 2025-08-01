@@ -10,7 +10,6 @@ from obspy.io.sac.sactrace import SACTrace
 from obspy.signal.invsim import cosine_sac_taper
 from scipy.stats import scoreatpercentile
 from scipy.signal import hilbert, windows, convolve
-from stockwell import st as swell
 
 from sanpy.base.functions import (check_missing_logs,
                                   distribute_objects,
