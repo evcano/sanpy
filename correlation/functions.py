@@ -3,7 +3,7 @@ import matplotlib.mlab as mlab
 import numpy as np
 import os
 from obspy.core import UTCDateTime
-from scipy import interpolate
+from scipy.ndimage import uniform_filter1d
 from scipy.signal import correlation_lags, convolve, windows
 
 
@@ -60,6 +60,20 @@ def read_tsignals(inpath, stations_list, cmpts):
             tsignals[sta][cmp] = [x for x in zip(tsig_stime, tsig_etime)]
 
     return tsignals
+
+
+def ram_normalization(tr, wdur):
+    """ running absolute mean normalization """
+    wsize = int(wdur / tr.stats.delta)
+    if wsize % 2 == 0:
+        wsize += 1
+
+    x = tr.data
+    xabs = np.abs(x)
+    xabs_mean = uniform_filter1d(xabs,size=wsize,mode='reflect')
+    x = np.divide(x,xabs_mean)
+    tr.data = x
+    return tr
 
 
 def uniform_time_normalization(corr):

@@ -134,6 +134,11 @@ for day in days_to_correlate:
             if not st_win_cmp:
                 continue
 
+            # time normalization
+            for tr in st_win_cmp:
+                tr = ram_normalization(tr, 0.5)
+
+            st_win_cmp.detrend("linear")
             st_win_cmp.detrend("demean")
             st_win_cmp.taper(0.05)
 
