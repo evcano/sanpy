@@ -31,6 +31,8 @@ if __name__ == '__main__':
         P = Stacking_Project(par)
     elif option == 'control':
         P = Control_Project(par)
+    else:
+        raise Exception("Incorrect option.")
 
     P.setup()
 

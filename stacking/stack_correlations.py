@@ -45,9 +45,10 @@ if myrank == 0:
         if not os.path.isdir(dir_):
             os.makedirs(dir_)
 
-        dir_ = os.path.join(greens_path, cmp)
-        if not os.path.isdir(dir_):
-            os.makedirs(dir_)
+        if P.par['compute_greens']:
+            dir_ = os.path.join(greens_path, cmp)
+            if not os.path.isdir(dir_):
+                os.makedirs(dir_)
 
     if not os.path.isdir(log_path):
         os.makedirs(log_path)
@@ -142,7 +143,7 @@ for pair in pairs_to_stack:
     write_log(log_path, pair, [x for x in no_daily_corr.values()])
 
     npairs_proc -= 1
-    print(f"{myrank} has {npairs_proc} pairs to stack")
+    #print(f"{myrank} has {npairs_proc} pairs to stack")
 
 if myrank == 0:
     shutil.copy(project_path, P.par['corr_path'])
