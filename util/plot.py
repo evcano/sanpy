@@ -1,157 +1,26 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-from obspy import read, Stream
-from sanpy.util.apparent_velocity import compute_apparent_velocity
+from obspy import read, Stream, UTCDateTime
+from glob import glob
 
 
-def plot_correlations(data_path, cmp, data_format, pairs=None, maxtime=None,
-                      bandpass=None, global_normalization=False, yaxis=None,
-                      amplitude_only=False, apparent_velocity=False):
-
-    # read data
-    st = Stream()
-
-    if len(pairs) > 0:
-        files = [f"{x}_{cmp}.{data_format}" for x in pairs]
-
-        for f in files:
-            stpath = os.path.join(data_path, f)
-
-            if os.path.isfile(stpath):
-                st += read(stpath, format=data_format)
-    else:
-        stpath = os.path.join(data_path, '*')
-        st += read(stpath, format=data_format)
-
+def _cut_correlations(st, maxlag):
     ntr = len(st)
+    branchtime = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
 
-    # filter data
-    if bandpass:
-        st.detrend("linear")
-        st.detrend("demean")
-        st.taper(0.1)
-        st.filter('bandpass',
-                  freqmin=bandpass[0],
-                  freqmax=bandpass[1],
-                  corners=2,
-                  zerophase=True)
-
-    # cut data
-    if maxtime:
-        maxlag = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
-
+    if maxlag:
         for i in range(0, ntr):
-            st[i] = st[i].slice(st[i].stats.starttime + maxlag - maxtime,
-                                st[i].stats.starttime + maxlag + maxtime)
+            st[i] = st[i].slice(st[i].stats.starttime + branchtime - maxlag,
+                                st[i].stats.starttime + branchtime + maxlag)
 
-    maxtime = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
-    lags = np.linspace(-maxtime, maxtime, st[0].stats.npts)
+    branchtime = ((st[0].stats.npts - 1) / 2) * st[0].stats.delta
+    lags = np.linspace(-branchtime, branchtime, st[0].stats.npts)
 
-
-    # normalize data
-    if global_normalization:
-        st.normalize(global_max=True)
-    else:
-        st.normalize(global_max=False)
-
-    # sort data according to interstation distance
-    distances = []
-    for tr in st:
-        distances.append(tr.stats.sac.dist)
-
-    idx = np.argsort(np.array(distances))
-    distances = np.sort(distances)
-
-    data = np.zeros((ntr, st[0].stats.npts))
-    for i, j in enumerate(idx):
-        data[i, :] = st[j].data
-
-    # estimate apparent velocity
-    if apparent_velocity:
-        pos_win = np.zeros(lags.shape)
-        pos_win[np.where(lags >= 0.0)] = 1.0
-
-        pos_c1, pos_c2 = compute_apparent_velocity(data*pos_win, lags,
-                                                   distances)
-
-        neg_c1, neg_c2 = compute_apparent_velocity(data*pos_win[::-1], lags,
-                                                   distances)
-
-    # setup figure
-    fig, ax = plt.subplots()
-
-    ax.set_title(f'Noise correlations {cmp.upper()}')
-    ax.set_xlabel('Lag [s]')
-
-    if yaxis and yaxis == 'dis' and amplitude_only is False:
-        ax.set_ylabel('Interstation distance [km]')
-    else:
-        ax.set_ylabel('Unitless')
-
-    # plot data
-    if amplitude_only:
-        ax.imshow(data, extent=[lags[0], lags[-1], 0, ntr-1])
-    else:
-        offset = 0
-
-        for i in range(0, ntr):
-            if yaxis and yaxis == 'dis':
-                data[i, :] += distances[i]
-            else:
-                data[i, :] += offset
-                offset = np.max(data[i, :])
-
-            ax.plot(lags, data[i, :], c='k', lw=0.5, alpha=0.5)
-
-    print('{} correlations plotted'.format(ntr))
-
-    if apparent_velocity:
-        print('Acausal-branch apparent velocity: {} km/s'.format(1.0/neg_c1))
-        print('Causal-branch apparent velocity: {} km/s'.format(1.0/pos_c1))
-
-        if yaxis and yaxis == 'dis':
-            plt.plot(pos_c1*np.array(distances)+pos_c2, distances, 'r')
-            plt.plot(neg_c1*np.array(distances)+neg_c2, distances, 'r')
-
-    plt.show()
-
-    return
+    return st, lags
 
 
-def plot_greens(data_path, cmp, data_format, pairs=None, maxtime=None,
-                bandpass=None, global_normalization=False, yaxis=None,
-                amplitude_only=False, apparent_velocity=False):
-
-    # read data
-    st = Stream()
-
-    if pairs:
-        files = [f"{x}_{cmp}.{data_format}" for x in pairs]
-
-        for f in files:
-            stpath = os.path.join(data_path, f)
-
-            if os.path.isfile(stpath):
-                st += read(stpath, format=data_format)
-    else:
-        stpath = os.path.join(data_path, '*')
-        st += read(stpath, format=data_format)
-
-    ntr = len(st)
-
-    # filter data and normalize
-    if bandpass:
-        st.detrend("linear")
-        st.detrend("demean")
-        st.taper(0.1)
-        st.filter('bandpass',
-                  freqmin=bandpass[0],
-                  freqmax=bandpass[1],
-                  corners=2,
-                  zerophase=True)
-
-    # cut maximum time
+def _cut_waveforms(st, maxtime):
     if maxtime:
         for i in range(0, ntr):
             st[i] = st[i].slice(st[i].stats.starttime,
@@ -159,62 +28,247 @@ def plot_greens(data_path, cmp, data_format, pairs=None, maxtime=None,
 
     times = st[0].times()
 
-    # normalize data
-    if global_normalization:
-        st.normalize(global_max=True)
-    else:
-        st.normalize(global_max=False)
+    return st, times
 
-    # sort data according to interstation distance
+
+def _filter_data(st, bandpass):
+    st.detrend("linear")
+    st.detrend("demean")
+    st.taper(0.1)
+
+    if bandpass:
+        st.filter('bandpass',
+                  freqmin=bandpass[0],
+                  freqmax=bandpass[1],
+                  corners=4,
+                  zerophase=True)
+
+    return st
+
+
+def _read_data(data_path, data_format, cmp, pairs):
+    st = Stream()
+
+    if pairs and len(pairs) > 0:
+        files = [f"{x}_{cmp}.{data_format}" for x in pairs]
+        files = [os.path.join(data_path, f) for f in files]
+        for f in files:
+            if os.path.isfile(f):
+                st += read(f, format=data_format)
+    else:
+        stpath = os.path.join(data_path, '*')
+        st += read(stpath, format=data_format)
+
+    ntr = len(st)
+
+    if ntr == 0:
+        print("no data")
+        return None, None
+
+    return st, ntr
+
+
+def _st_to_array(st):
+    """ data is sorted by interstation distance """
+    ntr = len(st)
+    data = np.zeros((ntr, st[0].stats.npts))
     distances = []
+
     for tr in st:
         distances.append(tr.stats.sac.dist)
 
     idx = np.argsort(np.array(distances))
-    distances = np.sort(distances)
 
-    data = np.zeros((ntr, st[0].stats.npts))
     for i, j in enumerate(idx):
         data[i, :] = st[j].data
 
-    # estimate apparent velocity
-    if apparent_velocity:
-        c1, c2 = compute_apparent_velocity(data, times, distances)
+    return data, distances
 
-    # setup figure
-    fig, ax = plt.subplots()
 
-    ax.set_title(f"Empirical Green's functions {cmp.upper()}")
-    ax.set_xlabel('Time [s]')
+def plot_correlations(data_path, data_format, cmp, pairs=None,
+    bandpass=None, maxlag=None, global_normalization=False, avel=None,
+    yaxis='idx', gain=1.0, lw=1.0, alpha=1.0,
+    wiggles=False, amplitude_only=False, showfig=True, ax=None):
 
-    if yaxis and yaxis == 'dis' and amplitude_only is False:
+    # prepare data
+    st, ntr = _read_data(data_path, data_format, cmp, pairs)
+    st = _filter_data(st, bandpass)
+    st, lags = _cut_correlations(st, maxlag)
+    st.normalize(global_max=global_normalization)
+
+    # plot data
+    if not ax:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+
+    if amplitude_only:
+        data, _ = _st_to_array(st)
+        ax.imshow(data, extent=[lags[0], lags[-1], 0, ntr-1], origin="lower", aspect="auto", cmap="seismic")
+    else:
+        for i in range(0, ntr):
+            if yaxis == 'dis':
+                offset = st[i].stats.sac.dist
+            else:
+                offset = i
+
+            y = (st[i].data * gain) + offset
+            ax.plot(lags, y, c='k', lw=lw, alpha=alpha)
+
+            ## mirror branches
+            #ax.plot(lags[np.where(lags>=0)], y[np.where(lags>=0)], c='k', lw=lw, alpha=alpha)
+            #ax.plot(-lags[np.where(lags<=0)], y[np.where(lags<=0)], c='b', lw=lw, alpha=alpha)
+
+            if wiggles:
+                ax.fill_between(lags, y, y.mean(), where=y>y.mean(),
+                    color="k", alpha=alpha, interpolate=True)
+
+    # apparent velocity lines
+    if yaxis == 'dis' and avel and amplitude_only == False:
+        distances = [tr.stats.sac.dist for tr in st]
+        distances = np.sort(np.array(distances))
+
+        for v  in avel:
+            tmp = 1/v * np.array(distances)
+            ax.plot(tmp, distances, 'g', lw=lw, alpha=0.9)
+            ax.plot(-tmp, distances, 'g', lw=lw, alpha=0.9)
+
+            ax.text(0.0, distances[-5], f"{v:.2f} km/s", alpha=0.9, fontsize=9)
+            #ax.text(-tmp[-1], distances[-1], f"{v:.2f} km/s", alpha=alpha)
+
+    # figure settings
+    ax.set_xlim(-maxlag, maxlag)
+    if bandpass:
+        ax.set_title(f'{cmp.upper()} noise correlations {bandpass[0]:.2f}-{bandpass[1]:.2f} Hz')
+    else:
+        ax.set_title(f'{cmp.upper()} noise correlations')
+    ax.set_xlabel('Lag [s]')
+
+    if yaxis == 'dis' and amplitude_only is False:
         ax.set_ylabel('Interstation distance [km]')
     else:
         ax.set_ylabel('Unitless')
 
+    if showfig:
+        print(f'{ntr} correlations plotted')
+        plt.show()
+        plt.close()
+        return None, None
+    else:
+        return fig, ax
+
+
+def plot_daily_correlations(data_path, data_format,
+    bandpass=None, maxlag=None, global_normalization=False,
+    gain=1.0, lw=1.0, alpha=1.0, wiggles=False, amplitude_only=False,
+    showfig=True):
+
+    # read data, sort by date, and get dates
+    files = glob(os.path.join(data_path,"*"))
+    files.sort()
+
+    st = Stream()
+    day_list = []
+    dayno_list = []
+
+    for f in files:
+        st += read(f, format=data_format)
+
+        basefile = os.path.basename(f)
+        sta1, sta2, _, day = basefile.split("_")
+
+        day, _ = day.split(".")
+        day = UTCDateTime(day)
+        day_list.append(day)
+
+        dayno = day.matplotlib_date - UTCDateTime("1970-01-01 00:00:00").matplotlib_date
+        dayno_list.append(dayno)
+
+    ntr = len(st)
+
+    if ntr == 0:
+        print("no data")
+        return None, None
+
+    # prepare data
+    st = _filter_data(st, bandpass)
+    st, lags = _cut_correlations(st, maxlag)
+    st.normalize(global_max=global_normalization)
+
     # plot data
+    fig, ax = plt.subplots()
+
+    for i in range(0, ntr):
+        y = (st[i].data * gain) + dayno_list[i]
+        ax.plot(lags, y, c="k", lw=lw, alpha=alpha)
+
+    # figure settings
+    dist = st[0].stats.sac.dist
+    cmp = st[0].stats.sac.kcmpnm
+    title = (
+             f"{sta1} - {sta2} {dist:.2f} km \n"
+             f"Daily {cmp} noise correlations \n"
+             f"{bandpass[0]:.2f} - {bandpass[1]:.2f} Hz"
+            )
+
+    ax.set_title(title)
+    ax.set_xlabel('Lag [s]')
+
+    yticks = [x for x in dayno_list[::2]]
+    ylabels = [f"{x.year}-{x.month:02}-{x.day:02}" for x in day_list[::2]]
+    ax.set_yticks(ticks=yticks, labels=ylabels)
+
+    print(f'{ntr} correlations plotted')
+    
+    if showfig:
+        plt.show()
+        plt.close()
+        return None, None
+    else:
+        return fig, ax
+
+
+def plot_greens(data_path, data_format, cmp, pairs=None,
+    bandpass=None, maxtime=None, global_normalization=False,
+    yaxis='idx', gain=1.0, lw=1.0, alpha=1.0,
+    wiggles=False, amplitude_only=False):
+
+    # prepare data
+    st, ntr = _read_data(data_path, data_format, cmp, pairs)
+    st = _filter_data(st, bandpass)
+    st, times = _cut_waveforms(st, maxtime)
+    st.normalize(global_max=global_normalization)
+
+    # plot data
+    fig, ax = plt.subplots()
+
     if amplitude_only:
+        data, _ = _st_to_array(st)
         ax.imshow(data, extent=[times[0], times[-1], 0, ntr-1])
     else:
-        offset = 0
-
         for i in range(0, ntr):
-            if yaxis and yaxis == 'dis':
-                data[i, :] += distances[i]
+            if yaxis == 'dis':
+                offset = st[i].stats.sac.dist
             else:
-                data[i, :] += offset
-                offset = np.max(data[i, :])
+                offset = i
+            y = (st[i].data * gain) + offset
+            ax.plot(times, y, c='k', lw=lw, alpha=alpha)
 
-            ax.plot(times, data[i, :], c='k', lw=0.5, alpha=0.5)
+            if wiggles:
+                ax.fill_between(times, y, y.mean(), where=y>y.mean(),
+                    color="k", alpha=alpha, interpolate=True)
+
+    # figure settings
+    ax.set_title(f"Empirical Green's functions {cmp.upper()}")
+    ax.set_xlabel('Time [s]')
+
+    if yaxis == 'dis' and amplitude_only is False:
+        ax.set_ylabel('Interstation distance [km]')
+    else:
+        ax.set_ylabel('Unitless')
 
     print("{} empirical Green's functions plotted".format(len(idx)))
-
-    if apparent_velocity:
-        print('Apparent velocity: {} km/s'.format(1.0/c1))
-
-        if yaxis and yaxis == 'dis':
-            plt.plot(c1*np.array(distances)+c2, distances, 'r')
-
     plt.show()
+    plt.close()
 
     return
