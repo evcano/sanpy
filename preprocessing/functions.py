@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import scipy.fft as sf
+from scipy.signal import detrend
 
 
 def check_sample_aligment(st):
@@ -110,8 +111,15 @@ def preprocess(st, par, inv=[]):
             st.remove(tr)
             continue
 
-        tr.detrend(type="linear")
-        tr.detrend(type="demean")
+        tr.detrend(type="demean")  # remove mean
+
+        # obspy detrend function can lead to large memory use if sampling rate is high
+        #tr.detrend(type="linear")
+
+        # detrend data using two segments to reduce memory consumption
+        npts = tr.stats.npts
+        detrend(tr.data, type="linear", bp=[npts//2], overwrite_data=True)
+
         tr.taper(max_percentage=None,
                  max_length=par["taper_length"])
 
