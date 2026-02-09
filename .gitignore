@@ -1,0 +1,6 @@
+# DIRECTORIES
+__pycache__/
+**/__pycache__/
+
+# FILES
+projects/*.pkl
