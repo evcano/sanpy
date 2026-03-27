@@ -79,10 +79,6 @@ lags = correlation_lags(P.par['corr_npts'], P.par['corr_npts'])
 maxlag = int(P.par["maxlag"] / P.par['dt'])  # maxlag to store (in samples)
 store_lags = np.where(np.abs(lags) <= maxlag)[0]
 
-# read transient signals
-if P.par['remove_tsignals']:
-    tsignals = read_tsignals(P.par['tsig_path'], P.stations_list, P.par['data_cmpts'])
-
 list_of_days = list(P.waveforms_paths_perday.keys())
 list_of_days.sort()
 
@@ -149,16 +145,6 @@ for pair in pairs_to_correlate:
                 for tr in st_win_cmp:
                     if tr.stats.npts != P.par['corr_npts']:
                         st_win_cmp.remove(tr)
-                    elif P.par['remove_tsignals']:
-                        tr_sta = f"{tr.stats.network}.{tr.stats.station}"
-                        for tsig in tsignals[tr_sta][cmp]:
-                            stime1 = tr.stats.starttime
-                            etime1 = tr.stats.endtime
-                            stime2 = tsig[0]
-                            etime2 = tsig[1]
-                            if (stime1 < etime2) and (stime2 < etime1):
-                                st_win_cmp.remove(tr)
-                                break
 
                 stations_win[cmp] = [f"{tr.stats.network}.{tr.stats.station}" for tr in st_win_cmp]
 
@@ -168,7 +154,7 @@ for pair in pairs_to_correlate:
 
                 # time normalization
                 for tr in st_win_cmp:
-                    tr = ram_normalization(tr, 0.5)
+                    tr = ram_normalization(tr, P.par['ram_win'])
 
                 st_win_cmp.detrend("linear")
                 st_win_cmp.detrend("demean")
@@ -205,12 +191,13 @@ for pair in pairs_to_correlate:
                 if P.par['whitening']:
                     for q in range(0, data_fft[cmp].shape[0]):
                         # normalization spectrum
-                        norm_spec = np.abs(np.real(data_fft[cmp][q,:]))
+                        norm_spec = np.abs(data_fft[cmp][q,:])
                         win_smooth = windows.hann(10)
                         norm_spec = convolve(norm_spec, win_smooth, mode="same")
                         norm_spec /= np.sum(win_smooth)
                         # apply whitening
-                        data_fft[cmp][q,:] = np.divide(data_fft[cmp][q,:], norm_spec)
+                        eps = 1e-10
+                        data_fft[cmp][q,:] = np.divide(data_fft[cmp][q,:], norm_spec + eps)
                         # apply frequency taper
                         data_fft[cmp][q,:] *= fqtaper
                         # determine value to clip the spectrum
