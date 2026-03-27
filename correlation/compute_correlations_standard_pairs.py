@@ -152,12 +152,13 @@ for pair in pairs_to_correlate:
                 if s1 != s2 and len(stations_win[cmp]) != 2:
                     continue
 
+                st_win_cmp.detrend("linear")
+                st_win_cmp.detrend("demean")
+
                 # time normalization
                 for tr in st_win_cmp:
                     tr = ram_normalization(tr, P.par['ram_win'])
 
-                st_win_cmp.detrend("linear")
-                st_win_cmp.detrend("demean")
                 st_win_cmp.taper(0.05)
 
                 data[cmp] = np.asarray([tr.data for tr in st_win_cmp])
