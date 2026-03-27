@@ -1,6 +1,4 @@
 import matplotlib.pyplot as plt
-import itertools
-import glob
 import numpy as np
 import os
 import shutil
@@ -43,10 +41,8 @@ P = load_project(project_path)
 if myrank == 0:
     print("checking pending station pairs", flush=True)
 
-    pairs_list_no_autocorr = [x for x in P.pairs_list if x.split("_")[0] != x.split("_")[1]]
-
     pending_pairs = check_missing_logs(log_path=P.par['log_path'],
-                                       log_names=pairs_list_no_autocorr,
+                                       log_names=P.pairs_list,
                                       )
 
     if len(pending_pairs) == 0:
@@ -56,7 +52,6 @@ else:
     pending_pairs = None
 
 pending_pairs = comm.bcast(pending_pairs, root=0)
-
 pairs_to_correlate = distribute_objects(pending_pairs, nproc, myrank)
 npairs_proc = len(pairs_to_correlate)
 
@@ -65,7 +60,6 @@ if myrank == 0:
 
 # define frequency domain taper
 fqax = np.fft.rfftfreq(P.par['corr_nfft'], P.par['dt'])
-
 if P.par['fqtaper']:
     fqcorners = P.par['fqtaper']       
     fqtaper = cosine_sac_taper(freqs=fqax, flimit=fqcorners)
@@ -86,14 +80,30 @@ list_of_days.sort()
 for pair in pairs_to_correlate:
     s1, s2 = pair.split("_")
 
-    if s1 == s2:
-        print("skipping autocorrelation", flush=True)
-        write_log(P.par['log_path'], pair, ['none'])
-        npairs_proc -= 1
-        continue
-
     net1, sta1 = s1.split(".")
     net2, sta2 = s2.split(".")
+
+    sta1path = os.path.join(P.par['data_path'],net1,sta1)
+    sta2path = os.path.join(P.par['data_path'],net2,sta2)
+
+    if s1 != s2:
+        waveforms_files1 = [
+            os.path.join(sta1path, e.name) for e in os.scandir(sta1path)
+            if any(c in e.name for c in P.par['data_cmpts'])
+        ]
+
+        waveforms_files2 = [
+            os.path.join(sta2path, e.name) for e in os.scandir(sta2path)
+            if any(c in e.name for c in P.par['data_cmpts'])
+        ]
+
+        waveforms_files = waveforms_files1 + waveforms_files2
+
+    else:
+        waveforms_files = [
+            os.path.join(sta1path, e.name) for e in os.scandir(sta1path)
+            if any(c in e.name for c in P.par['data_cmpts'])
+        ]
 
     # loop over days
     for day in list_of_days:
@@ -101,21 +111,14 @@ for pair in pairs_to_correlate:
         day2 = day.replace("-","")
 
         # read files
-        waveforms_files1 = []
-        waveforms_files2 = []
-
-        for cmp in P.par['data_cmpts']:
-            waveforms_files1 += glob.glob(os.path.join(P.par['data_path'], net1, sta1, f"*{cmp}*{day2}*"))
-            waveforms_files2 += glob.glob(os.path.join(P.par['data_path'], net2, sta2, f"*{cmp}*{day2}*"))
-
-        if waveforms_files1 and waveforms_files2:
-            waveforms_files = waveforms_files1 + waveforms_files2
+        day_waveforms_files = [f for f in waveforms_files if day2 in f]
+ 
+        if day_waveforms_files:
+            st = Stream()
+            for file_ in day_waveforms_files:
+                st += read(file_, format=P.par['data_format'])
         else:
             continue
-
-        st = Stream()
-        for file_ in waveforms_files:
-            st.extend(read(file_, format=P.par['data_format']))
 
         # declare array to store the correlations of the day
         corr_day = {}
@@ -125,9 +128,7 @@ for pair in pairs_to_correlate:
             count_corr[cmp] = 0
 
         # slide a window over the data
-        for st_win in st.slide(P.par['corr_dur'],
-                               P.par['corr_dur']-P.par["corr_overlap"]):
-
+        for st_win in st.slide(P.par['corr_dur'], P.par['corr_dur']-P.par["corr_overlap"]):
             # check that there is data
             if not st_win:
                 continue
@@ -140,8 +141,7 @@ for pair in pairs_to_correlate:
             for cmp in P.par["data_cmpts"]:
                 st_win_cmp = st_win.select(component=cmp)
 
-                # remove traces with time gaps or transient signals
-                # transient signals are independently removed per component
+                # remove traces with time gaps
                 for tr in st_win_cmp:
                     if tr.stats.npts != P.par['corr_npts']:
                         st_win_cmp.remove(tr)
@@ -149,7 +149,7 @@ for pair in pairs_to_correlate:
                 stations_win[cmp] = [f"{tr.stats.network}.{tr.stats.station}" for tr in st_win_cmp]
 
                 # check there is data for the two stations
-                if len(stations_win[cmp]) != 2:
+                if s1 != s2 and len(stations_win[cmp]) != 2:
                     continue
 
                 # time normalization
@@ -161,10 +161,7 @@ for pair in pairs_to_correlate:
                 st_win_cmp.taper(0.05)
 
                 data[cmp] = np.asarray([tr.data for tr in st_win_cmp])
-                data_fft[cmp] = np.fft.rfftn(data[cmp],
-                                             s=[P.par["corr_nfft"]],
-                                             axes=[1],
-                                             norm="backward")
+                data_fft[cmp] = np.fft.rfftn(data[cmp], s=[P.par["corr_nfft"]], axes=[1], norm="backward")
 
             # determine available correlation components
             avail_data_cmpts = list(data.keys())
@@ -206,7 +203,6 @@ for pair in pairs_to_correlate:
                         imax = scoreatpercentile(tmp, 95)
                         not_outlier = np.where((tmp >= imin) & (tmp <= imax))
                         rms = tmp[not_outlier].std()
-
                         # clip spectrum to remove outliers/peaks
                         data_fft[cmp][q,:] = np.clip(data_fft[cmp][q,:], -rms, rms)
                 else:
@@ -222,46 +218,33 @@ for pair in pairs_to_correlate:
                     dcmp = cmp[0]
                     i1 = stations_win[dcmp].index(s1)
                     i2 = stations_win[dcmp].index(s2)
-
-                    # linear cross-correlation of sta1 with sta2 as in equation 11 of Tromp et al. 2010
-                    tmp_corr = data_fft[dcmp][i1, :] * np.conj(data_fft[dcmp][i2, :])
-                    # convert to time domain, this results in [pos_lags, neg_lags]
-                    tmp_corr = np.real(np.fft.irfft(tmp_corr, P.par['corr_nfft'], norm="backward"))
-                    # switch second and first halves of corr to obtain [neg_lags, pos_lags]
-                    tmp_corr = np.fft.fftshift(tmp_corr)
-                    # eliminate effect of zero-padding
-                    tmp_corr = my_centered(tmp_corr, len(lags))
-                    # store lags of interest
-                    tmp_corr = tmp_corr[store_lags]
-                    corr[cmp] = tmp_corr                 
-
+                    fft_sta1 = data_fft[dcmp][i1, :]
+                    fft_sta2 = data_fft[dcmp][i2, :]
                 elif cmp in ["RR", "TT"]:
                     i1_E = stations_win["E"].index(s1)
                     i1_N = stations_win["N"].index(s1)
                     i2_E = stations_win["E"].index(s2)
                     i2_N = stations_win["N"].index(s2)
-                  
                     if cmp == "RR":
                         w1 = np.cos(np.deg2rad(P.pairs[pair]["az"]))
                         w2 = np.sin(np.deg2rad(P.pairs[pair]["az"]))
                     elif cmp == "TT":
                         w1 = -np.sin(np.deg2rad(P.pairs[pair]["az"]))
                         w2 = np.cos(np.deg2rad(P.pairs[pair]["az"]))
-                  
                     fft_sta1 = w1 * data_fft["N"][i1_N,:] + w2 * data_fft["E"][i1_E,:]
                     fft_sta2 = w1 * data_fft["N"][i2_N,:] + w2 * data_fft["E"][i2_E,:]
                   
-                    # linear cross-correlation of sta1 with sta2 as in equation 11 of Tromp et al. 2010
-                    tmp_corr = fft_sta1 * np.conj(fft_sta2)
-                    # convert to time domain, this results in [pos_lags, neg_lags]
-                    tmp_corr = np.real(np.fft.irfft(tmp_corr, P.par['corr_nfft'], norm="backward"))
-                    # switch second and first halves of corr to obtain [neg_lags, pos_lags]
-                    tmp_corr = np.fft.fftshift(tmp_corr)
-                    # eliminate effect of zero-padding
-                    tmp_corr = my_centered(tmp_corr, len(lags))
-                    # store lags of interest
-                    tmp_corr = tmp_corr[store_lags]
-                    corr[cmp] = tmp_corr                 
+                # linear cross-correlation of sta1 with sta2 as in equation 11 of Tromp et al. 2010
+                tmp_corr = fft_sta1 * np.conj(fft_sta2)
+                # convert to time domain, this results in [pos_lags, neg_lags]
+                tmp_corr = np.real(np.fft.irfft(tmp_corr, P.par['corr_nfft'], norm="backward"))
+                # switch second and first halves of corr to obtain [neg_lags, pos_lags]
+                tmp_corr = np.fft.fftshift(tmp_corr)
+                # eliminate effect of zero-padding
+                tmp_corr = my_centered(tmp_corr, len(lags))
+                # store lags of interest
+                tmp_corr = tmp_corr[store_lags]
+                corr[cmp] = tmp_corr
 
                 # stack correlations
                 corr[cmp] /= np.max(np.abs(corr[cmp]))  # normalize by max amp
