@@ -1,3 +1,4 @@
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -77,7 +78,9 @@ def _st_to_array(st):
     for tr in st:
         distances.append(tr.stats.sac.dist)
 
-    idx = np.argsort(np.array(distances))
+    distances = np.array(distances)
+    idx = np.argsort(distances)
+    distances = np.sort(distances)
 
     for i, j in enumerate(idx):
         data[i, :] = st[j].data
@@ -85,9 +88,30 @@ def _st_to_array(st):
     return data, distances
 
 
+def _bin_data(data, distances, binsize):
+    dmin = np.min(distances)
+    dmax = np.max(distances)
+    bins = np.arange(dmin, dmax+binsize, binsize)
+    nbins = len(bins) - 1
+
+    data2 = np.zeros((nbins,data.shape[1]))
+
+    for i in range(data.shape[0]):
+        d = distances[i]
+        if d == 0:
+            continue  # skip autocorrelation
+        idx = np.searchsorted(bins, d, side="right") - 1
+        data2[idx,:] += data[i,:]
+
+    for i in range(data2.shape[0]):
+        data2[i,:] /= np.max(np.abs(data2[i,:]))
+
+    return data2, bins
+
+
 def plot_correlations(data_path, data_format, cmp, pairs=None,
     bandpass=None, maxlag=None, global_normalization=False, avel=None,
-    yaxis='idx', gain=1.0, lw=1.0, alpha=1.0,
+    yaxis='idx', gain=1.0, lw=1.0, alpha=1.0, binsize=None,
     wiggles=False, amplitude_only=False, showfig=True, ax=None):
 
     # prepare data
@@ -103,8 +127,17 @@ def plot_correlations(data_path, data_format, cmp, pairs=None,
         fig = ax.figure
 
     if amplitude_only:
-        data, _ = _st_to_array(st)
-        ax.imshow(data, extent=[lags[0], lags[-1], 0, ntr-1], origin="lower", aspect="auto", cmap="seismic")
+        data, distances = _st_to_array(st)
+
+        if binsize is not None:
+            data, distances = _bin_data(data, distances, binsize)
+            ymin = distances[0]
+            ymax = distances[-1]
+        else:
+            ymin = 0
+            ymax = ntr-1
+
+        ax.imshow(data, extent=[lags[0], lags[-1], ymin, ymax], origin="lower", aspect="auto", cmap="seismic")
     else:
         for i in range(0, ntr):
             if yaxis == 'dis':
@@ -124,17 +157,24 @@ def plot_correlations(data_path, data_format, cmp, pairs=None,
                     color="k", alpha=alpha, interpolate=True)
 
     # apparent velocity lines
-    if yaxis == 'dis' and avel and amplitude_only == False:
-        distances = [tr.stats.sac.dist for tr in st]
-        distances = np.sort(np.array(distances))
+    if avel:
+        if binsize is None:
+            distances = [tr.stats.sac.dist for tr in st]
+            distances = np.sort(np.array(distances))
 
+        off = 1
         for v  in avel:
             tmp = 1/v * np.array(distances)
-            ax.plot(tmp, distances, 'g', lw=lw, alpha=0.9)
-            ax.plot(-tmp, distances, 'g', lw=lw, alpha=0.9)
+            tmp[tmp<-maxlag] = -maxlag
+            tmp[tmp>maxlag] = maxlag
 
-            ax.text(0.0, distances[-5], f"{v:.2f} km/s", alpha=0.9, fontsize=9)
-            #ax.text(-tmp[-1], distances[-1], f"{v:.2f} km/s", alpha=alpha)
+            ax.plot(tmp, distances, 'g', lw=lw, alpha=alpha)
+            ax.plot(-tmp, distances, 'g', lw=lw, alpha=alpha)
+
+            bbox = dict(boxstyle="round", pad=0.2, fc="white", alpha=0.8, ec="none")
+            ax.text(-tmp[-1]*off, np.max(distances)*0.9, f"{v:.1f} km/s", alpha=alpha,
+                bbox=bbox,fontsize=mpl.rcParams['font.size']*0.55)
+            off -= 0.3
 
     # figure settings
     ax.set_xlim(-maxlag, maxlag)
@@ -146,11 +186,14 @@ def plot_correlations(data_path, data_format, cmp, pairs=None,
 
     if yaxis == 'dis' and amplitude_only is False:
         ax.set_ylabel('Interstation distance [km]')
+    elif amplitude_only == True and binsize is not None:
+        ax.set_ylabel('Interstation distance [km]')
     else:
         ax.set_ylabel('Unitless')
 
+    print(f'{ntr} correlations plotted')
+
     if showfig:
-        print(f'{ntr} correlations plotted')
         plt.show()
         plt.close()
         return None, None
