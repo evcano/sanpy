@@ -8,7 +8,7 @@ from scipy.signal import correlation_lags, convolve, windows
 
 
 def compute_single_spec(data_fft):
-    single_spec = np.percentile(np.abs(np.real(data_fft)), q=95, axis=0)
+    single_spec = np.percentile(np.abs(data_fft), q=95, axis=0)
     win = windows.hann(10)
     single_spec = convolve(single_spec, win, mode="same")
     single_spec /= np.sum(win)
