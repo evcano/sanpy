@@ -5,14 +5,9 @@ import os
 
 
 def check_missing_logs(log_path, log_names):
-    missing_logs = []
-
-    for log_name in log_names:
-        log_file = os.path.join(log_path, '{}.log'.format(log_name))
-
-        if not os.path.isfile(log_file):
-            missing_logs.append(log_name)
-
+    existing_files = set(os.listdir(log_path))
+    existing_basenames = {f.rsplit('.', 1)[0] for f in existing_files}
+    missing_logs = [name for name in log_names if name not in existing_basenames]
     return missing_logs
 
 
