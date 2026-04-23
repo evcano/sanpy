@@ -136,9 +136,10 @@ for pair in pairs_to_stack:
         if P.par['compute_greens']:
             tr = tr.to_obspy_trace()
             _, _, sym = correlation_branches(tr, branch='all')
-            sym.data = np.diff(sym.data, n=1) * -1.0
+            egf = sym.copy()
+            egf.data = np.gradient(sym.data) * -1.0
             outfile = os.path.join(greens_path, cmp, f"{pair}_{cmp}.sac")
-            sym.write(outfile)
+            egf.write(outfile)
 
     write_log(log_path, pair, [x for x in no_daily_corr.values()])
 
