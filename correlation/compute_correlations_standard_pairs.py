@@ -146,6 +146,9 @@ for pair in pairs_to_correlate:
                     if tr.stats.npts != P.par['corr_npts']:
                         st_win_cmp.remove(tr)
 
+                if not st_win_cmp:
+                    continue
+
                 stations_win[cmp] = [f"{tr.stats.network}.{tr.stats.station}" for tr in st_win_cmp]
 
                 # check there is data for the two stations
