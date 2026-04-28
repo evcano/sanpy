@@ -1,4 +1,4 @@
-import time
+#import time
 import h5py
 import numpy as np
 import os
@@ -36,14 +36,6 @@ nproc = comm.Get_size()
 project_path = sys.argv[1]
 P = load_project(project_path)
 
-plist = [
-    "XX.DA001_XX.DA148",
-    "XX.DA103_XX.DA163",
-    "XX.DA066_XX.DA116",
-    "XX.DA116_XX.DA195",
-    "XX.DA056_XX.DA196",
-    ]
-
 # distribute jobs
 if myrank == 0:
     print("checking pending station pairs", flush=True)
@@ -68,14 +60,9 @@ if myrank == 0:
 # set constants
 required_cmpts = {"EE": {"E"}, "NN": {"N"}, "ZZ": {"Z"}, "RR": {"E","N"}, "TT": {"E","N"}}
 
-maxlag = int(P.par["maxlag"] / P.par['dt'])  # maxlag to store (in samples)
-
-ram_wsize = int(P.par['ram_win'] / P.par['dt'])
-if ram_wsize % 2 == 0:
-    ram_wsize += 1
-
+maxlag_samp = int(P.par["maxlag"] / P.par['dt'])  # maxlag to store (in samples)
 lags = correlation_lags(P.par['corr_npts'], P.par['corr_npts'])
-store_lags = np.where(np.abs(lags) <= maxlag)[0]
+store_lags = np.where(np.abs(lags) <= maxlag_samp)[0]
 
 list_of_days = list(P.waveforms_paths_perday.keys())
 list_of_days.sort()
@@ -83,6 +70,10 @@ list_of_days.sort()
 ndays = len(list_of_days)
 nwindows = 1 + (86400 - P.par['corr_dur']) / (P.par['corr_dur'] - P.par['corr_overlap'])
 outshape = (nwindows*ndays, store_lags.size)
+
+ram_wsize = int(P.par['ram_win'] / P.par['dt'])
+if ram_wsize % 2 == 0:
+    ram_wsize += 1
 
 # define frequency domain taper
 fqax = np.fft.rfftfreq(P.par['corr_nfft'], P.par['dt'])
@@ -101,11 +92,10 @@ spec_smooth_win /= spec_smooth_win.sum()
 
 # loop over pairs
 for pair in pairs_to_correlate:
-    t0 = time.perf_counter()
+    #t0 = time.perf_counter()
 
     # list all files of the involved stations
     s1, s2 = pair.split("_")
-
     net1, sta1 = s1.split(".")
     net2, sta2 = s2.split(".")
 
@@ -116,10 +106,18 @@ for pair in pairs_to_correlate:
     else:
         waveforms_files = P.waveforms_paths_sta[s1]
 
+    # set constants
+    pair_az = np.deg2rad(P.pairs[pair]["az"])
+    cosaz = np.cos(pair_az)
+    sinaz = np.sin(pair_az)
+
     # set up HDF5 file
     outfile = os.path.join(P.par['corr_path'], f'{pair}.h5')
     h5file = h5py.File(outfile, 'w')
 
+    h5file.attrs["delta"] = P.par['dt']
+    h5file.attrs["b"] = P.par['maxlag']
+    h5file.attrs["lcalda"] = 1
     h5file.attrs["kstnm"] = s2
     h5file.attrs["stla"] = P.stations[s2]['lat']
     h5file.attrs["stlo"] = P.stations[s2]['lon']
@@ -128,10 +126,7 @@ for pair in pairs_to_correlate:
     h5file.attrs["evla"] = P.stations[s1]['lat']
     h5file.attrs["evlo"] = P.stations[s1]['lon']
     h5file.attrs["evdp"] = P.stations[s1]['elv']
-    h5file.attrs["lcalda"] = 1
     h5file.attrs["dist"] = P.pairs[pair]['dis']
-    h5file.attrs["delta"] = P.par['dt']
-    h5file.attrs["b"] = P.par['maxlag']
 
     DSETS = {}
 
@@ -151,11 +146,6 @@ for pair in pairs_to_correlate:
         )
 
         DSETS[cmp] = {'data': dset_data, 'dates': dset_dates, 'c': 0}
-
-    # set constants
-    pair_az = np.deg2rad(P.pairs[pair]["az"])
-    cosaz = np.cos(pair_az)
-    sinaz = np.sin(pair_az)
 
     for day in list_of_days:
         # read all data of the day (including all components)
@@ -179,11 +169,11 @@ for pair in pairs_to_correlate:
             # remove traces with time gaps and check available data components
             st_win = Stream([tr for tr in st_win if tr.stats.npts == P.par['corr_npts']])
 
+            window_date = st_win[0].stats.starttime.timestamp
+
             sta_cmpts = {sta1: [], sta2: []}
             for tr in st_win:
                 sta_cmpts[tr.stats.station].append(tr.stats.component)
-
-            window_date = st_win[0].stats.starttime.timestamp
 
             # obtain data components available for both stations
             avail_data_cmpts = [
@@ -208,16 +198,16 @@ for pair in pairs_to_correlate:
 
             # arrange data into a matrix
             DATA = []
-            HEAD = {}
+            MAP = {}
             for i, tr in enumerate(st_win):
                 DATA.append(tr.data)
-                HEAD[f"{tr.stats.network}.{tr.stats.station}.{tr.stats.component}"] = i
+                MAP[f"{tr.stats.network}.{tr.stats.station}.{tr.stats.component}"] = i
             DATA = np.asarray(DATA, dtype=np.float32)
 
             # running-absolute-mean normalization
             W = uniform_filter1d(np.abs(DATA), size=ram_wsize, axis=1, mode='reflect')
-            W[W == 0] = 1e-10
-            DATA *= 1.0 / W
+            W[W < 1e-10] = 1e-10
+            DATA /= W
 
             # compute fft
             DATA_FFT = np.fft.rfftn(DATA, s=[P.par["corr_nfft"]], axes=[1], norm="backward")
@@ -226,30 +216,36 @@ for pair in pairs_to_correlate:
             DATA_FFT *= fqtaper
 
             # spectral whitening
-            norm_spec = convolve1d(np.abs(DATA_FFT), weights=spec_smooth_win, axis=1, mode='reflect')
+            AMP = np.abs(DATA_FFT)
+            norm_spec = convolve1d(AMP, weights=spec_smooth_win, axis=1, mode='reflect')
             DATA_FFT /= (norm_spec + 1e-10)
 
-            # clip fft amplitude to remove spikes
-            tmp = np.abs(DATA_FFT[:, flatfq_idx])
-            imin = np.percentile(tmp, 5, axis=1)
-            imax = np.percentile(tmp, 95, axis=1)
-            mask = (tmp >= imin[:,None]) & (tmp <= imax[:,None])
-            tmp2 = np.where(mask, tmp, np.nan)
-            rms = np.nanstd(tmp2,axis=1)
+            # separate amplitude and phase
+            AMP = np.abs(DATA_FFT)
+            PHASE = DATA_FFT / np.maximum(AMP, 1e-10)
+
+            # detect spikes
+            TMP = AMP[:, flatfq_idx]
+            imin = np.percentile(TMP, 5, axis=1)
+            imax = np.percentile(TMP, 95, axis=1)
+            TMP = np.where(
+                (TMP >= imin[:, None]) & (TMP <= imax[:, None]),
+                TMP,
+                np.nan
+            )
+            rms = np.nanstd(TMP, axis=1)
 
             # clip magnitude, preserve phase
-            AMP = np.abs(DATA_FFT)
-            PHASE = DATA_FFT / (AMP + 1e-10)
             AMP = np.minimum(AMP, rms[:,None])
             DATA_FFT = AMP * PHASE
 
             # rotate components
             if "RR" in avail_corr_cmpts or "TT" in avail_corr_cmpts:
-                i1_E = HEAD[f"{s1}.E"]
-                i1_N = HEAD[f"{s1}.N"]
+                i1_E = MAP[f"{s1}.E"]
+                i1_N = MAP[f"{s1}.N"]
 
-                i2_E = HEAD[f"{s2}.E"]
-                i2_N = HEAD[f"{s2}.N"]
+                i2_E = MAP[f"{s2}.E"]
+                i2_N = MAP[f"{s2}.N"]
 
                 R1 = cosaz * DATA_FFT[i1_N,:] + sinaz * DATA_FFT[i1_E,:]
                 R2 = cosaz * DATA_FFT[i2_N,:] + sinaz * DATA_FFT[i2_E,:]
@@ -260,8 +256,8 @@ for pair in pairs_to_correlate:
             # compute noise correlations
             for cmp in avail_corr_cmpts:
                 if cmp in ("EE", "NN", "ZZ"):
-                    fft_sta1 = DATA_FFT[HEAD[f"{s1}.{cmp[0]}"],:]
-                    fft_sta2 = DATA_FFT[HEAD[f"{s2}.{cmp[0]}"],:]
+                    fft_sta1 = DATA_FFT[MAP[f"{s1}.{cmp[0]}"],:]
+                    fft_sta2 = DATA_FFT[MAP[f"{s2}.{cmp[0]}"],:]
                 elif cmp == "RR":
                     fft_sta1 = R1
                     fft_sta2 = R2
@@ -282,21 +278,22 @@ for pair in pairs_to_correlate:
 
         # arrange ffts in one matrix
         CORR_FFT = np.array(corr_fft_day)
+
         # convert to time domain, this results in [pos_lags, neg_lags]
         CORR = np.real(np.fft.irfft(CORR_FFT, n=P.par['corr_nfft'], axis=1, norm="backward"))
+
         # switch second and first halves of corr to obtain [neg_lags, pos_lags]
         CORR = np.fft.fftshift(CORR, axes=1)
-        # eliminate effect of zero-padding
-        CORR = my_centered2d(CORR, len(lags))  # TODO: check this works
+
+        # eliminate effect of zero-padding conducted to accelerate fft
+        CORR = my_centered2d(CORR, lags.size)
+
         # store lags of interest
         CORR = CORR[:, store_lags]
-        # normalize by max amp
-        CORR /= np.max(np.abs(CORR), axis=1, keepdims=True)
 
         # pass correlations of the day to HDF5
         corr_cmp_day = np.array(corr_cmp_day)
         corr_date_day = np.array(corr_date_day)
-
         cmp_idx = {cmp: np.where(corr_cmp_day == cmp)[0] for cmp in P.par["corr_cmpts"]}
 
         for cmp in P.par["corr_cmpts"]:
@@ -320,13 +317,13 @@ for pair in pairs_to_correlate:
     h5file.flush()
     h5file.close()
 
-#    # write log once done with all days of the pair
-#    write_log(P.par['log_path'], pair, ['none'])
+    # write log once done with all days of the pair
+    write_log(P.par['log_path'], pair, ['none'])
     npairs_proc -= 1
 
     print(f'{pair} done; {npairs_proc} pairs left for rank {myrank}', flush=True)
 
-    t1 = time.perf_counter()
-    print("elapsed:", t1 - t0, "seconds", flush=True)
+    #t1 = time.perf_counter()
+    #print("elapsed:", t1 - t0, "seconds", flush=True)
 
 print(f"core {myrank} done", flush=True)
