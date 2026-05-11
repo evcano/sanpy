@@ -43,6 +43,27 @@ def my_centered(arr, newsize):
     return newarr
 
 
+def my_centered2d(arr, newsize):
+    '''
+    Same as my_centered but for 2-D arrays
+    '''
+
+    if newsize % 2 == 0:
+        raise ValueError('Newsize must be odd.')
+    m, n = arr.shape
+    newarr = np.zeros((m, newsize))
+    i0 = (n - newsize) // 2
+
+    if i0 < 0:
+        i0 = (newsize - n) // 2
+        newarr[:, i0: i0 + n] += arr
+    else:
+        if n % 2 == 0:
+            i0 += 1
+        newarr[:, :] += arr[:, i0: i0 + newsize]
+    return newarr
+
+
 def read_tsignals(inpath, stations_list, cmpts):
     tsignals = {}
     for sta in stations_list:
