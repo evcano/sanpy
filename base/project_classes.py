@@ -68,7 +68,7 @@ class Correlation_Project(Preprocessing_Project):
                                       ignore_sta=self.par["ignore_sta"]
                                      )
 
-        self.waveforms_paths, self.data_span = scan_waveforms(
+        self.waveforms_paths, self.data_span, self.waveforms_paths_sta = scan_waveforms(
             data_path=self.par["data_path"],
             stations=self.stations,
             chans=self.par["data_chans"]

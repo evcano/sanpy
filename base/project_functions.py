@@ -133,6 +133,8 @@ def scan_waveforms(data_path, stations, chans):
     stations_codes.sort()
 
     waveforms_paths = []
+    waveforms_paths_sta = {}
+
     stations_recording_start = []
     stations_recording_end = []
 
@@ -147,10 +149,10 @@ def scan_waveforms(data_path, stations, chans):
                                if x.split(".")[2] in chans[net]]
 
         # list waveforms paths
-        sta_waveforms_paths = [os.path.join(net,sta,x)
-                               for x in sta_waveforms_files]
+        sta_waveforms_paths = [os.path.join(net,sta,x) for x in sta_waveforms_files]
         sta_waveforms_paths.sort()
 
+        waveforms_paths_sta[sta_code] = sta_waveforms_paths
         waveforms_paths.extend(sta_waveforms_paths)
 
         # get the first and last day where the station recorded data
@@ -178,7 +180,7 @@ def scan_waveforms(data_path, stations, chans):
             for x in range((d2-d1).days + 1)]
     data_span = np.array(days)
 
-    return waveforms_paths, data_span
+    return waveforms_paths, data_span, waveforms_paths_sta
 
 
 def list_waveforms_perday(waveforms_paths, data_span):
