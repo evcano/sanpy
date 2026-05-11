@@ -169,7 +169,6 @@ for pair in pairs_to_correlate:
             # remove traces with time gaps and check available data components
             st_win = Stream([tr for tr in st_win if tr.stats.npts == P.par['corr_npts']])
 
-            window_date = st_win[0].stats.starttime.timestamp
 
             sta_cmpts = {sta1: [], sta2: []}
             for tr in st_win:
@@ -190,6 +189,8 @@ for pair in pairs_to_correlate:
 
             if not avail_corr_cmpts:
                 continue
+
+            window_date = st_win[0].stats.starttime.timestamp
 
             # preprocessing
             st_win.detrend("linear")
